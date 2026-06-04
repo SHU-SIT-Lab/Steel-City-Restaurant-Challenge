@@ -1,0 +1,12 @@
+name: steel-city-restaurant
+channels:
+  - conda-forge
+  - robostack-humble
+dependencies:
+  - python=3.10
+  - ros-humble-ros-base
+  - opencv
+  - ffmpeg
+  - pip
+  - pip:
+    - openai-whisper
