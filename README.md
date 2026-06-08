@@ -14,12 +14,12 @@ Steel-City-Restaurant-Challenge/
 │   ├── run_docker.bash
 │   └── save_docker.bash
 ├── docs/
-│   ├── database/
-│   ├── interfaces/
-│   ├── navigation/
-│   ├── speech/
-│   ├── task_manager/
-│   └── vision/
+│   ├── database.md
+│   ├── interfaces.md
+│   ├── navigation.md
+│   ├── speech.md
+│   ├── task_manager.md
+│   └── vision.md
 ├── turtlebot_ws/
 │   └── src/
 │       ├── database/
@@ -43,6 +43,8 @@ git clone git@github.com:SHU-SIT-Lab/Steel-City-Restaurant-Challenge.git
 cd Steel-City-Restaurant-Challenge
 ```
 
+If you are working with ROS, skip to [Working with ROS](#working-with-ros).
+
 ## Environment
 
 Create and activate the conda environment from the repository root:
@@ -52,7 +54,13 @@ conda env create -f environment.yaml
 conda activate steel-city-restaurant
 ```
 
-Use this when working on Python components outside Docker. If you are using ROS, create and activate the environment inside the Docker container instead (see below).
+Use this when working on Python components outside Docker.
+
+To update `environment.yaml` after installing new packages:
+
+```bash
+conda env export --from-history --no-builds > environment.yaml
+```
 
 ## Working with ROS
 
@@ -81,13 +89,13 @@ ROS development runs inside Docker. From the repository root:
 ## Documentation
 
 
-| Module       | Docs                                                       |
-| ------------ | ---------------------------------------------------------- |
-| Database     | [docs/database/README.md](docs/database/README.md)         |
-| Interfaces   | [docs/interfaces/README.md](docs/interfaces/README.md)     |
-| Navigation   | [docs/navigation/README.md](docs/navigation/README.md)     |
-| Speech       | [docs/speech/README.md](docs/speech/README.md)             |
-| Task Manager | [docs/task_manager/README.md](docs/task_manager/README.md) |
-| Vision       | [docs/vision/README.md](docs/vision/README.md)             |
+| Module       | Docs                                           |
+| ------------ | ---------------------------------------------- |
+| Database     | [docs/database.md](docs/database.md)           |
+| Interfaces   | [docs/interfaces.md](docs/interfaces.md)       |
+| Navigation   | [docs/navigation.md](docs/navigation.md)       |
+| Speech       | [docs/speech.md](docs/speech.md)               |
+| Task Manager | [docs/task_manager.md](docs/task_manager.md)   |
+| Vision       | [docs/vision.md](docs/vision.md)               |
 
 
