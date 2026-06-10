@@ -280,6 +280,7 @@ env/
 # IDE
 .cursor/
 .vscode/
+.idea
 
 # OS
 .DS_Store
