@@ -4,6 +4,8 @@ Codebase for the [Steel City Restaurant Challenge](https://sitlabresearch.uk/res
 
 ## Repository structure
 
+Python modules live under `scripts/`. Each subdirectory maps to a competition component and has its own documentation in `docs/`. Robot control runs through the ROS 2 workspace in `turtlebot_ws/`.
+
 ```
 Steel-City-Restaurant-Challenge/
 ├── configs/
@@ -13,24 +15,21 @@ Steel-City-Restaurant-Challenge/
 ├── docker/
 │   ├── run_docker.bash
 │   └── save_docker.bash
-├── docs/
-│   ├── database.md
-│   ├── interfaces.md
-│   ├── navigation.md
-│   ├── speech.md
-│   ├── task_manager.md
-│   └── vision.md
-├── turtlebot_ws/
-│   └── src/
-│       ├── database/
-│       ├── interfaces/
-│       ├── navigation/
-│       ├── speech/
-│       ├── task_manager/
-│       └── vision/
+├── docs/              # documentation for individual modules
+├── scripts/
+│   ├── __init__.py
+│   ├── database/
+│   ├── interfaces/
+│   ├── navigation/
+│   ├── speech/
+│   ├── task_manager/
+│   └── vision/
 ├── tests/
 │   └── __init__.py
+├── turtlebot_ws/
+│   └── src/
 ├── environment.yaml
+├── LICENSE
 └── README.md
 ```
 
