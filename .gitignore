@@ -288,3 +288,18 @@ Thumbs.db
 
 # Models / caches
 .whisper/
+__pycache__/
+*.pyc
+.venv/
+.env
+.DS_Store
+pretrained_models/
+orders.json
+scripts/speech/orders.json
+scripts/speech/pretrained_models/
+scripts/speech/__pycache__/
+!/scripts/
+!/scripts/**
+scripts/speech/__pycache__/
+scripts/speech/pretrained_models/
+scripts/speech/orders.json
