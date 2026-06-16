@@ -6,6 +6,7 @@ import time
 from typing import Any
 
 from behaviors.behaviors import DeliberativeBehavior
+from behaviors.database_bridge import RestaurantDatabase, shared_state
 
 
 class IntroduceTableBehavior(DeliberativeBehavior):
@@ -15,6 +16,7 @@ class IntroduceTableBehavior(DeliberativeBehavior):
 		super().__init__(name="introduce_table")
 		self.wait_time = 5.0
 		self.order = 3
+		self.db = RestaurantDatabase()
 
 	def plan(self, ctx: Any) -> None:
 		# TODO 1: Navigation
@@ -25,7 +27,13 @@ class IntroduceTableBehavior(DeliberativeBehavior):
 		
 		# TODO 3: Database
 		# Check which table is assigned to the customer and update database with table assignment. Set table to occupied.
-		
+		table_id = self.db.find_empty_table()
+		if table_id is None:
+			return
+		self.db.assign_table(table_id)
+		self.db.decrement_customers_waiting()
+		shared_state(ctx)["assigned_table_id"] = table_id
+
 		# TODO 4: Navigation
 		# Move robot to assigned table.
 
@@ -38,12 +46,12 @@ class IntroduceTableBehavior(DeliberativeBehavior):
 		# Check if customer_number at front door is not zero
 		# Check if there is empty table
 		# If customer number is at front door is not zero and there is empty table, then set customers_detected to 1, else 0
-		self.guide_customer = 0
+		self.guide_customer = 1 if self.db.should_guide_customer_to_table() else 0
 
 		elapsed_time = time.monotonic() - self.last_run_time
 		if elapsed_time < self.wait_time:
 			self.priority = 0.0
-        else:
-            self.priority = 1.0 * self.order * self.guide_customer
+		else:
+			self.priority = 1.0 * self.order * self.guide_customer
 
 		return self.priority

@@ -1,0 +1,13 @@
+database:
+  # Path to Firebase service account JSON (relative to repo root).
+  credentials_file: configs/security_key.json
+  # Firestore database ID. Use "(default)" for the primary database.
+  database_id: "(default)"
+
+  collections:
+    tables: tables
+    orders: orders
+    restaurant_state: restaurant_state
+
+  # Number of dining tables in the competition arena.
+  number_of_tables: 5
