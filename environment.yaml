@@ -1,10 +1,17 @@
 name: steel-city-restaurant
 channels:
   - conda-forge
-  - defaults
+  - robostack-humble
 dependencies:
   - python=3.10
+  - ros-humble-ros-base
+  - opencv
+  - ffmpeg
   - pip
+  - pip:
+    - openai-whisper
+    - firebase-admin
+    - pyyaml
   - setuptools
   - wheel
 

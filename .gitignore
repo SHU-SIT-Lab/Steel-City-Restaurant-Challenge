@@ -276,6 +276,8 @@ data/*
 # Environment / secrets
 .env
 env/
+configs/security_key.json
+**/security_key.json
 
 # IDE
 .cursor/
