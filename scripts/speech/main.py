@@ -6,6 +6,7 @@ Usage:
     python main.py
 """
 
+import difflib
 import re
 import sys
 
@@ -26,18 +27,39 @@ def _normalise_text(text: str) -> str:
     return text.strip()
 
 
-def _extract_after_trigger(user_text: str) -> tuple[bool, str]:
-    normalised = _normalise_text(user_text)
+def _fuzzy_find_trigger(words: list[str]) -> int:
+    """Return the word index just AFTER a wake-word match, or -1 if none.
 
+    Slides each trigger phrase over the spoken words and accepts a window if it
+    is similar enough (handles Whisper hearing 'bot' as 'boot', 'vote', etc.).
+    """
+    best_end = -1
     for phrase in config.TRIGGER_PHRASES:
-        phrase = _normalise_text(phrase)
+        phrase_words = _normalise_text(phrase).split()
+        n = len(phrase_words)
+        if n == 0 or n > len(words):
+            continue
 
-        if phrase in normalised:
-            index = normalised.find(phrase)
-            after_trigger = normalised[index + len(phrase):].strip()
-            return True, after_trigger
+        target = " ".join(phrase_words)
+        for i in range(len(words) - n + 1):
+            window = " ".join(words[i:i + n])
+            ratio = difflib.SequenceMatcher(None, window, target).ratio()
+            if ratio >= config.TRIGGER_FUZZY_THRESHOLD:
+                best_end = max(best_end, i + n)
+    return best_end
 
-    return False, user_text.strip()
+
+def _extract_after_trigger(user_text: str) -> tuple[bool, str]:
+    words = _normalise_text(user_text).split()
+    if not words:
+        return False, ""
+
+    end = _fuzzy_find_trigger(words)
+    if end == -1:
+        return False, user_text.strip()
+
+    after_trigger = " ".join(words[end:]).strip()
+    return True, after_trigger
 
 
 def start_customer() -> None:
@@ -46,6 +68,26 @@ def start_customer() -> None:
 
 def sleep_message() -> None:
     print("[MAIN] Waiting for trigger phrase: Hey ServerBot")
+
+
+def _courtesy_turn() -> None:
+    """After an order, catch a single closing 'thanks/bye' without the wake word.
+
+    Listens once. Replies warmly to a courtesy remark, otherwise stays silent
+    (so ambient noise doesn't get a response). Keeps the robot polite without
+    re-opening a full conversation.
+    """
+    closing = stt.listen()
+    if not closing:
+        return
+
+    print(f"[USER] (closing) {closing!r}")
+    text = _normalise_text(closing)
+
+    if any(word in text for word in ("thank", "thanks", "cheers")):
+        tts.speak("You're welcome! Enjoy your meal.")
+    elif any(word in text for word in GOODBYE_WORDS):
+        tts.speak("Goodbye!")
 
 
 def main() -> None:
@@ -104,23 +146,17 @@ def main() -> None:
             continue
 
         try:
-            reply, order_data = llm.chat(user_text)
+            # The LLM may call tools (navigation, record_order) before replying.
+            reply, order_recorded = llm.chat(user_text)
             tts.speak(reply)
 
-            if order_data:
-                order.update(order_data)
-
-                if order.is_confirmed():
-                    saved = order.save_and_reset()
-                    tts.speak(
-                        f"Perfect! I have placed your order for "
-                        f"{', '.join(saved['items'])}. "
-                        f"It will be with you shortly!"
-                    )
-
-                    llm.reset_conversation()
-                    active = False
-                    sleep_message()
+            # When an order has been saved, this customer is done.
+            # Offer one brief courtesy turn, then go back to sleep.
+            if order_recorded:
+                llm.reset_conversation()
+                active = False
+                _courtesy_turn()
+                sleep_message()
 
         except EnvironmentError as e:
             print(f"\n[ERROR] {e}\n")
