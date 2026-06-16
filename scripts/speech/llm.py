@@ -1,11 +1,21 @@
-"""LLM integration using OpenAI API — returns (spoken_reply, order_dict)."""
+"""LLM with OpenAI tool calling for the restaurant waiter.
+
+The model can call tools (navigate_to, record_order) defined in tools.py.
+`chat()` runs an agentic loop: it keeps calling the model and executing any
+tools the model asks for, until the model produces a final spoken reply.
+"""
 
 import json
 import openai
+
 import config
+import tools
 
 _client: openai.OpenAI | None = None
 _history: list[dict] = []
+
+# Safety cap so a misbehaving model can't loop forever calling tools.
+MAX_TOOL_ROUNDS = 5
 
 
 def _get_client() -> openai.OpenAI:
@@ -21,39 +31,76 @@ def _get_client() -> openai.OpenAI:
     return _client
 
 
-def chat(user_text: str) -> tuple[str, dict | None]:
-    """Send user_text to the LLM.
+def chat(user_text: str) -> tuple[str, bool]:
+    """Process one customer turn.
+
+    The model may call tools (navigation, order recording) before replying.
 
     Returns:
-        (reply_text, order_dict)  — order_dict is None until items are mentioned,
-        and has confirmed=True once the customer says yes.
+        (reply_text, order_recorded)
+        - reply_text:    what the robot should say out loud.
+        - order_recorded: True if an order was saved during this turn
+                          (so the caller can end/reset the conversation).
     """
     _history.append({"role": "user", "content": user_text})
+    order_recorded = False
 
-    response = _get_client().chat.completions.create(
-        model=config.OPENAI_MODEL,
-        max_tokens=config.MAX_TOKENS,
-        response_format={"type": "json_object"},
-        messages=[{"role": "system", "content": config.SYSTEM_PROMPT}] + _history,
-    )
+    for _ in range(MAX_TOOL_ROUNDS):
+        response = _get_client().chat.completions.create(
+            model=config.OPENAI_MODEL,
+            max_tokens=config.MAX_TOKENS,
+            messages=[{"role": "system", "content": config.SYSTEM_PROMPT}] + _history,
+            tools=tools.TOOLS,
+        )
+        msg = response.choices[0].message
 
-    raw = response.choices[0].message.content.strip()
-    _history.append({"role": "assistant", "content": raw})
+        # Record the assistant turn (may include tool calls) in history.
+        assistant_msg: dict = {"role": "assistant", "content": msg.content}
+        if msg.tool_calls:
+            assistant_msg["tool_calls"] = [
+                {
+                    "id": tc.id,
+                    "type": "function",
+                    "function": {
+                        "name": tc.function.name,
+                        "arguments": tc.function.arguments,
+                    },
+                }
+                for tc in msg.tool_calls
+            ]
+        _history.append(assistant_msg)
 
-    try:
-        data = json.loads(raw)
-        reply = data.get("reply", "")
-        order = data.get("order", None)
-    except json.JSONDecodeError:
-        print(f"[LLM] Warning: could not parse JSON — {raw!r}")
-        reply = raw
-        order = None
+        # No tool calls -> this is the final spoken reply.
+        if not msg.tool_calls:
+            reply = (msg.content or "").strip()
+            print(f"[LLM] Reply : {reply!r}")
+            return reply, order_recorded
 
-    print(f"[LLM] Reply : {reply!r}")
-    if order:
-        print(f"[LLM] Order : {order}")
+        # Execute each requested tool and feed the result back to the model.
+        for tc in msg.tool_calls:
+            name = tc.function.name
+            try:
+                args = json.loads(tc.function.arguments or "{}")
+            except json.JSONDecodeError:
+                args = {}
 
-    return reply, order
+            print(f"[LLM] Tool call : {name}({args})")
+            result = tools.execute_tool(name, args)
+            print(f"[LLM] Tool result: {result}")
+
+            if name == "record_order" and result.get("success"):
+                order_recorded = True
+
+            _history.append({
+                "role": "tool",
+                "tool_call_id": tc.id,
+                "content": json.dumps(result),
+            })
+        # Loop again so the model can respond to the tool results.
+
+    # Safety fallback if the model never stops calling tools.
+    print("[LLM] Warning: hit MAX_TOOL_ROUNDS without a final reply.")
+    return "Sorry, let me try that again.", order_recorded
 
 
 def reset_conversation() -> None:
