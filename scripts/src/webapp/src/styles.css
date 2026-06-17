@@ -52,6 +52,7 @@ button:active:not(:disabled) {
 }
 
 button:focus-visible,
+input:focus-visible,
 select:focus-visible,
 textarea:focus-visible {
   outline: 2px solid #d8a94f;
@@ -77,6 +78,17 @@ select {
   background: #101816;
   font: inherit;
   text-transform: capitalize;
+}
+
+input[type="text"],
+input[type="number"] {
+  width: 100%;
+  border: 1px solid rgba(238, 244, 236, 0.16);
+  border-radius: 8px;
+  padding: 0.45rem 0.55rem;
+  color: #eef4ec;
+  background: #101816;
+  font: inherit;
 }
 
 textarea {

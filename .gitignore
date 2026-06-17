@@ -305,3 +305,6 @@ scripts/speech/__pycache__/
 scripts/speech/__pycache__/
 scripts/speech/pretrained_models/
 scripts/speech/orders.json
+
+# Firebase service-account keys — never commit these (both Admin SDK keys match)
+**/*firebase-adminsdk*.json

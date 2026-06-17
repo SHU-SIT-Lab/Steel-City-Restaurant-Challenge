@@ -1,7 +1,7 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { hasRole } from "../../lib/rbac";
 import type { CommandDefinition } from "../../types/commands";
-import type { Order, Robot, Role, Table } from "../../types/firestore";
+import type { EntranceParty, Order, Robot, Role, Table } from "../../types/firestore";
 import type { QueueCommandInput } from "../../lib/api/client";
 import { Modal, OptionCard } from "../ui/Modal";
 
@@ -11,6 +11,7 @@ interface CommandDeckProps {
   robots: Robot[];
   tables: Table[];
   orders: Order[];
+  parties: EntranceParty[];
   saving: boolean;
   onQueueCommand: (input: QueueCommandInput) => Promise<void>;
 }
@@ -21,6 +22,7 @@ export function CommandDeck({
   robots,
   tables,
   orders,
+  parties,
   saving,
   onQueueCommand,
 }: CommandDeckProps) {
@@ -31,35 +33,84 @@ export function CommandDeck({
   const [selectedRobotId, setSelectedRobotId] = useState(robot?.id ?? "");
   const [selectedTableId, setSelectedTableId] = useState(targetTable?.id ?? "");
   const [selectedOrderId, setSelectedOrderId] = useState(targetOrder?.id ?? "");
-  const [reason, setReason] = useState("Queued from web app");
+  const [selectedPartyId, setSelectedPartyId] = useState("");
+  const [partySize, setPartySize] = useState(2);
+  const [waypoint, setWaypoint] = useState("");
+  const [reason, setReason] = useState("");
 
   const executableOrders = useMemo(
     () => orders.filter((order) => !["delivered", "cancelled", "failed"].includes(order.status)),
     [orders],
   );
 
+  const partyQueue = useMemo(
+    () => parties.filter((party) => party.status !== "cancelled" && party.status !== "no_show"),
+    [parties],
+  );
+
+  const waypointSuggestions = useMemo(
+    () =>
+      Array.from(
+        new Set(
+          [...robots.map((candidate) => candidate.current_location), "kitchen_bar", "entrance", "charging_dock"].filter(
+            Boolean,
+          ),
+        ),
+      ),
+    [robots],
+  );
+
   function openCommand(command: CommandDefinition) {
+    const firstParty = partyQueue[0];
+
     setActiveCommand(command);
     setSelectedRobotId(robot?.id ?? "");
     setSelectedTableId(targetTable?.id ?? "");
     setSelectedOrderId(targetOrder?.id ?? "");
-    setReason(command.type === "EMERGENCY_STOP" ? "" : "Queued from web app");
+    setSelectedPartyId(firstParty?.id ?? "");
+    setPartySize(firstParty?.party_size ?? 2);
+    setWaypoint("");
+    setReason("");
   }
+
+  function selectParty(party: EntranceParty) {
+    setSelectedPartyId(party.id);
+    setPartySize(party.party_size);
+  }
+
+  const missingRequirement = useMemo(() => {
+    if (!activeCommand) {
+      return true;
+    }
+
+    const required = activeCommand.requiredParams;
+
+    if (required.includes("robot_id") && !selectedRobotId) return true;
+    if (required.includes("table_id") && !selectedTableId) return true;
+    if (required.includes("order_id") && !selectedOrderId) return true;
+    if (required.includes("party_id") && !selectedPartyId) return true;
+    if (required.includes("waypoint") && !waypoint.trim()) return true;
+    if (required.includes("reason") && !reason.trim()) return true;
+
+    return false;
+  }, [activeCommand, selectedRobotId, selectedTableId, selectedOrderId, selectedPartyId, waypoint, reason]);
 
   async function handleQueueCommand(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
-    if (!activeCommand) {
+    if (!activeCommand || missingRequirement) {
       return;
     }
 
-    const payload = buildCommandPayload(
-      activeCommand,
-      robots.find((candidate) => candidate.id === selectedRobotId),
-      tables.find((candidate) => candidate.id === selectedTableId),
-      orders.find((candidate) => candidate.id === selectedOrderId),
+    const payload = buildCommandPayload(activeCommand, {
+      robot: robots.find((candidate) => candidate.id === selectedRobotId),
+      table: tables.find((candidate) => candidate.id === selectedTableId),
+      order: orders.find((candidate) => candidate.id === selectedOrderId),
+      party: parties.find((candidate) => candidate.id === selectedPartyId),
+      waypoint,
+      partySize,
       reason,
-    );
+    });
 
     await onQueueCommand(payload);
     setActiveCommand(null);
@@ -74,6 +125,7 @@ export function CommandDeck({
       <div className="command-list">
         {commands.map((command) => {
           const allowed = hasRole(role, command.roles);
+          const needsRobot = command.requiredParams.includes("robot_id");
 
           return (
             <article className={`command-row ${command.highRisk ? "command-row--risk" : ""}`} key={command.type}>
@@ -85,7 +137,7 @@ export function CommandDeck({
                 </small>
               </div>
               <button
-                disabled={!allowed || saving || !robot}
+                disabled={!allowed || saving || (needsRobot && !robot)}
                 onClick={() => openCommand(command)}
               >
                 {allowed ? "Configure" : "Locked"}
@@ -168,7 +220,66 @@ export function CommandDeck({
                 </div>
               </div>
             ) : null}
-            {activeCommand.type === "EMERGENCY_STOP" ? (
+            {activeCommand.requiredParams.includes("party_id") ? (
+              <div>
+                <span className="field-label">Party</span>
+                {partyQueue.length === 0 ? (
+                  <p className="empty-state">No active parties in the entrance queue.</p>
+                ) : (
+                  <div className="selection-grid">
+                    {partyQueue.map((party) => (
+                      <OptionCard
+                        key={party.id}
+                        meta={`${party.status} / party of ${party.party_size}`}
+                        onClick={() => selectParty(party)}
+                        selected={selectedPartyId === party.id}
+                        title={party.notes || `Party ${party.id.slice(0, 6)}`}
+                      />
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+            {activeCommand.requiredParams.includes("party_size") ? (
+              <label>
+                New customer count
+                <div className="stepper">
+                  <button
+                    disabled={partySize <= 1}
+                    onClick={() => setPartySize((value) => Math.max(1, value - 1))}
+                    type="button"
+                  >
+                    -
+                  </button>
+                  <strong>{partySize}</strong>
+                  <button
+                    disabled={partySize >= 12}
+                    onClick={() => setPartySize((value) => Math.min(12, value + 1))}
+                    type="button"
+                  >
+                    +
+                  </button>
+                </div>
+              </label>
+            ) : null}
+            {activeCommand.requiredParams.includes("waypoint") ? (
+              <label>
+                Waypoint
+                <input
+                  list="command-waypoints"
+                  onChange={(event) => setWaypoint(event.target.value)}
+                  placeholder="e.g. kitchen_bar"
+                  type="text"
+                  value={waypoint}
+                />
+                <datalist id="command-waypoints">
+                  {waypointSuggestions.map((suggestion) => (
+                    <option key={suggestion} value={suggestion} />
+                  ))}
+                </datalist>
+              </label>
+            ) : null}
+            {activeCommand.requiredParams.includes("reason") ? (
               <label>
                 Safety reason
                 <textarea
@@ -185,10 +296,7 @@ export function CommandDeck({
               <button className="button button--ghost" onClick={() => setActiveCommand(null)} type="button">
                 Cancel
               </button>
-              <button
-                disabled={saving || (activeCommand.type === "EMERGENCY_STOP" && !reason.trim())}
-                type="submit"
-              >
+              <button disabled={saving || missingRequirement} type="submit">
                 Queue command
               </button>
             </div>
@@ -201,27 +309,51 @@ export function CommandDeck({
 
 function buildCommandPayload(
   command: CommandDefinition,
-  robot: Robot | undefined,
-  table: Table | undefined,
-  order: Order | undefined,
-  reason: string,
+  selections: {
+    robot?: Robot;
+    table?: Table;
+    order?: Order;
+    party?: EntranceParty;
+    waypoint: string;
+    partySize: number;
+    reason: string;
+  },
 ): QueueCommandInput {
+  const { robot, table, order, party, waypoint, partySize, reason } = selections;
+  const required = command.requiredParams;
   const target: QueueCommandInput["target"] = {};
+  const params: Record<string, unknown> = {};
 
-  if (command.requiredParams.includes("table_id") && table) {
+  if (required.includes("table_id") && table) {
     target.table_id = table.id;
   }
 
-  if (command.requiredParams.includes("order_id") && order) {
+  if (required.includes("order_id") && order) {
     target.order_id = order.id;
     target.table_id = order.table_id;
   }
 
+  if (required.includes("waypoint") && waypoint.trim()) {
+    target.waypoint = waypoint.trim();
+  }
+
+  if (required.includes("party_id") && party) {
+    target.party_id = party.id;
+  }
+
+  if (required.includes("party_size")) {
+    params.party_size = partySize;
+  }
+
+  if (required.includes("reason") && reason.trim()) {
+    params.reason = reason.trim();
+  }
+
   return {
     command_type: command.type,
-    robot_id: robot?.id ?? null,
+    robot_id: required.includes("robot_id") ? (robot?.id ?? null) : null,
     target,
-    params: command.type === "EMERGENCY_STOP" ? { reason } : {},
+    params,
     idempotency_key: `${command.type}-${Date.now()}`,
   };
 }

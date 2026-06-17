@@ -53,6 +53,7 @@ export default function App() {
             robots={snapshot.robots}
             tables={snapshot.tables}
             orders={snapshot.orders}
+            parties={snapshot.entrance}
             saving={saving}
             onQueueCommand={actions.queueCommand}
           />

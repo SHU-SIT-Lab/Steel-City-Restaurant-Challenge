@@ -3,23 +3,69 @@ const path = require("path");
 const { applicationDefault, cert, getApps, initializeApp } = require("firebase-admin/app");
 const { FieldValue, getFirestore } = require("firebase-admin/firestore");
 
-const projectId = "restaurant-robocup-2026";
-const fallbackServiceAccountPath = path.resolve(
-  __dirname,
-  "../../../../docs/webapp/restaurant-robocup-2026-firebase-adminsdk-fbsvc-2b44375b91.json",
-);
+// Load webapp/.env into process.env so this module works whether it is required by the
+// Vite dev server or any other host. We parse the file directly (not Vite's loadEnv,
+// which lets an ambient process.env value shadow the file) so a stale
+// GOOGLE_APPLICATION_CREDENTIALS pointing at a missing file can be overridden.
+function loadDotenv() {
+  const envPath = path.resolve(__dirname, "..", ".env");
+
+  if (!fs.existsSync(envPath)) {
+    return;
+  }
+
+  for (const line of fs.readFileSync(envPath, "utf8").split("\n")) {
+    const trimmed = line.trim();
+    const eq = line.indexOf("=");
+
+    if (!trimmed || trimmed.startsWith("#") || eq === -1) {
+      continue;
+    }
+
+    const key = line.slice(0, eq).trim();
+    let value = line.slice(eq + 1).trim();
+
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+
+    const alreadySet = key in process.env;
+    const staleCredPath =
+      key === "GOOGLE_APPLICATION_CREDENTIALS" && alreadySet && !fs.existsSync(process.env[key]);
+
+    if (key && (!alreadySet || staleCredPath)) {
+      process.env[key] = value;
+    }
+  }
+}
+
+loadDotenv();
+
+const projectId = process.env.FIREBASE_PROJECT_ID || "restaurant-robocup-2026";
 
 let db;
 
+// Credentials come from the environment only — never from a file committed to the repo.
+//   FIREBASE_SERVICE_ACCOUNT        inline service-account JSON (preferred for deploys/CI)
+//   GOOGLE_APPLICATION_CREDENTIALS  path to a local service-account JSON (standard Google ADC)
+// See .env.example.
 function getCredential() {
-  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+  const inlineServiceAccount = process.env.FIREBASE_SERVICE_ACCOUNT;
 
-  if (credentialsPath && fs.existsSync(credentialsPath)) {
-    return applicationDefault();
+  if (inlineServiceAccount) {
+    return cert(JSON.parse(inlineServiceAccount));
   }
 
-  if (fs.existsSync(fallbackServiceAccountPath)) {
-    return cert(require(fallbackServiceAccountPath));
+  const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
+
+  // Fail fast and catchably here: if we hand applicationDefault() a missing path, the
+  // file check happens later inside async gRPC and surfaces as an unhandled rejection
+  // that crashes the whole dev server.
+  if (credentialsPath && !fs.existsSync(credentialsPath)) {
+    throw new Error(
+      `GOOGLE_APPLICATION_CREDENTIALS points to a missing file: ${credentialsPath}. ` +
+        "Set it to a valid service-account JSON (see .env.example) or unset it.",
+    );
   }
 
   return applicationDefault();
@@ -434,6 +480,15 @@ async function handleCommand(req, res) {
     fail("emergency stop requires a reason");
   }
 
+  if (commandType === "GO_TO_LOCATION" && typeof target.waypoint !== "string") {
+    fail("waypoint is required for this command");
+  }
+
+  if (commandType === "UPDATE_CUSTOMER_COUNT") {
+    requireString(target.party_id, "party_id");
+    requireInteger(params.party_size, "party_size", 1, 12);
+  }
+
   const batch = getDb().batch();
   const commandRef = getDb().collection("commands").doc();
   const taskRef = getDb().collection("tasks").doc();
@@ -470,6 +525,21 @@ async function handleCommand(req, res) {
     batch.update(getDb().collection("orders").doc(target.order_id), {
       status: "collecting",
       assigned_robot: robotId,
+      updated_at: FieldValue.serverTimestamp(),
+    });
+  }
+
+  if (commandType === "DELIVER_ORDER" && typeof target.order_id === "string") {
+    batch.update(getDb().collection("orders").doc(target.order_id), {
+      status: "delivering",
+      assigned_robot: robotId,
+      updated_at: FieldValue.serverTimestamp(),
+    });
+  }
+
+  if (commandType === "UPDATE_CUSTOMER_COUNT" && typeof target.party_id === "string") {
+    batch.update(getDb().collection("entrance").doc(target.party_id), {
+      party_size: params.party_size,
       updated_at: FieldValue.serverTimestamp(),
     });
   }
