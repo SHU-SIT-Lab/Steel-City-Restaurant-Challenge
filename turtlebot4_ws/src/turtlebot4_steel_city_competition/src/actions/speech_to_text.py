@@ -5,10 +5,13 @@ from pathlib import Path
 import sys
 from typing import Any, Optional
 
+import queue
+
 import cv2
 import numpy as np
 import rclpy
 from rclpy.node import Node
+from std_msgs.msg import String
 
 # Make sibling modules in src importable when this script is run directly.
 SRC_DIR = Path(__file__).resolve().parents[1]
@@ -16,6 +19,40 @@ if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from helpers.retrieve_mic import AudioData, MIC_CONFIG, process_mic_bytes
+
+
+# --- Speech-to-text (Whisper) settings ---
+STT_CONFIG = {
+    "whisper_model": "base",        # tiny | base | small | medium (bigger = better, slower)
+    "language": "en",
+    "speech_rms_threshold": 0.05,   # chunk loudness above this counts as speech
+    "silence_seconds": 0.8,         # a pause this long ends an utterance
+    "min_utterance_seconds": 0.3,   # ignore shorter blips
+    "max_utterance_seconds": 15.0,  # force-finish very long speech
+    "text_topic": "/speech_text",
+}
+
+_whisper_model = None
+
+
+def load_whisper_model(name: str | None = None):
+    """Load and cache the Whisper model (imported lazily to keep startup light)."""
+    global _whisper_model
+    if _whisper_model is None:
+        import whisper
+        _whisper_model = whisper.load_model(name or STT_CONFIG["whisper_model"])
+    return _whisper_model
+
+
+def transcribe_array(audio: np.ndarray) -> str:
+    """Transcribe a float32 16 kHz mono numpy array to text (no ffmpeg needed)."""
+    if audio is None or audio.size == 0:
+        return ""
+    model = load_whisper_model()
+    result = model.transcribe(
+        audio.astype(np.float32), language=STT_CONFIG["language"], fp16=False
+    )
+    return result.get("text", "").strip()
 
 
 # Global params for speech action.
@@ -36,6 +73,17 @@ class SpeechToText(Node):
         self.turtlebot_audio: Optional[np.ndarray] = None
         self.msg_count = 0
         self.last_msg_time: Optional[float] = None
+
+        # --- Utterance assembly (streaming voice-activity detection) ---
+        self._utterance_buffer: list[np.ndarray] = []
+        self._is_speaking = False
+        self._silence_elapsed = 0.0
+        self._utterance_len = 0.0
+        self._utterances: "queue.Queue[str]" = queue.Queue()
+        self._sample_rate = MIC_CONFIG["whisper_sample_rate"]
+
+        # Publish finished transcripts so other nodes may subscribe if they prefer.
+        self.text_publisher = self.create_publisher(String, STT_CONFIG["text_topic"], 10)
 
         # Subscribe to TurtleBot microphone topic.
         self.subscription = self.create_subscription(
@@ -113,9 +161,74 @@ class SpeechToText(Node):
         cv2.putText(canvas, age_text, (20, 76), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
 
     def todo_run_whisper(self, turtlebot_audio: Optional[np.ndarray]) -> None:
-        # TODO: Send turtlebot_audio to Whisper model.
-        # TODO: Parse Whisper output and publish or return text.
-        _ = turtlebot_audio
+        """Assemble streamed mic chunks into utterances and transcribe them.
+
+        Called once per mic message with that chunk's audio. We buffer chunks,
+        watch for a pause (silence), then transcribe the whole utterance with
+        Whisper and make the text available via get_next_utterance() and the
+        /speech_text topic.
+        """
+        if turtlebot_audio is None or turtlebot_audio.size == 0:
+            return
+
+        chunk = turtlebot_audio.astype(np.float32)
+        chunk_seconds = chunk.shape[0] / float(self._sample_rate)
+        rms = float(np.sqrt(np.mean(chunk * chunk)))
+        is_speech = rms >= STT_CONFIG["speech_rms_threshold"]
+
+        if is_speech:
+            self._is_speaking = True
+            self._silence_elapsed = 0.0
+        elif self._is_speaking:
+            self._silence_elapsed += chunk_seconds
+
+        if self._is_speaking:
+            self._utterance_buffer.append(chunk)
+            self._utterance_len += chunk_seconds
+
+        ended = self._is_speaking and self._silence_elapsed >= STT_CONFIG["silence_seconds"]
+        too_long = self._utterance_len >= STT_CONFIG["max_utterance_seconds"]
+        if ended or too_long:
+            self._finalize_utterance()
+
+    def _finalize_utterance(self) -> None:
+        """Transcribe the buffered utterance and publish the text."""
+        buffer = self._utterance_buffer
+        length = self._utterance_len
+        # Reset state for the next utterance before the (slow) transcription.
+        self._utterance_buffer = []
+        self._is_speaking = False
+        self._silence_elapsed = 0.0
+        self._utterance_len = 0.0
+
+        if not buffer or length < STT_CONFIG["min_utterance_seconds"]:
+            return
+
+        audio = np.concatenate(buffer)
+        try:
+            text = transcribe_array(audio)
+        except Exception as exc:
+            self.get_logger().error(f"Whisper failed: {exc}")
+            return
+
+        if not text:
+            return
+
+        self.get_logger().info(f"Heard: {text!r}")
+        self._utterances.put(text)
+        self.text_publisher.publish(String(data=text))
+
+    def get_next_utterance(self, timeout: float = 8.0) -> Optional[str]:
+        """Wait up to `timeout` seconds for the next transcript, else return None.
+
+        Safe to call from a behavior: the mic callback runs on another executor
+        thread (MultiThreadedExecutor), so it keeps filling the queue while this
+        waits. This is the request-with-timeout the take-order behavior uses.
+        """
+        try:
+            return self._utterances.get(timeout=timeout)
+        except queue.Empty:
+            return None
 
     def destroy_node(self) -> bool:
         if self.debug:

@@ -30,7 +30,57 @@ SPEECH_CONFIG = {
     "graph_height": 300,
     "graph_samples": 1024,
     "debug_refresh_hz": 20.0,
+    "white_noise": False,   # set True only to test the audio path with noise
 }
+
+
+def synthesize_to_array(text: str, target_rate: int = 16000) -> Optional[np.ndarray]:
+    """Offline TTS -> float32 mono array at target_rate.
+
+    Uses pyttsx3 (SAPI on Windows, espeak on Linux). Returns None if TTS is
+    unavailable so the caller can handle the failure gracefully.
+    """
+    import os
+    import tempfile
+
+    try:
+        import pyttsx3
+        import scipy.io.wavfile as wav
+    except Exception:
+        return None
+
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(suffix=".wav", delete=False) as f:
+            tmp_path = f.name
+
+        engine = pyttsx3.init()
+        engine.save_to_file(text, tmp_path)
+        engine.runAndWait()
+
+        sr, data = wav.read(tmp_path)
+        audio = data.astype(np.float32)
+        if audio.ndim > 1:
+            audio = audio.mean(axis=1)
+        if np.issubdtype(data.dtype, np.integer):
+            audio = audio / float(np.iinfo(data.dtype).max)
+
+        # Resample to the rate the robot's audio topic expects.
+        if sr != target_rate and audio.size:
+            n = int(round(audio.shape[0] * target_rate / sr))
+            x_old = np.linspace(0.0, 1.0, num=audio.shape[0], endpoint=False)
+            x_new = np.linspace(0.0, 1.0, num=n, endpoint=False)
+            audio = np.interp(x_new, x_old, audio).astype(np.float32)
+
+        return audio.astype(np.float32)
+    except Exception:
+        return None
+    finally:
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
 
 
 class TextToSpeech(Node):
@@ -55,51 +105,30 @@ class TextToSpeech(Node):
                 self._debug_update,
             )
 
-        # Timer for continuous white noise generation
-        self.create_timer(0.2, self._generate_and_publish_noise)
+        # Optional: continuous white-noise generator, only for testing the audio path.
+        if SPEECH_CONFIG.get("white_noise", False):
+            self.create_timer(0.2, self._generate_and_publish_noise)
 
-        self.get_logger().info("Text-to-speech node initialized (continuous white noise mode)")
+        self.get_logger().info("Text-to-speech node initialized")
 
     def todo_run_tts(self, text: str) -> Optional[np.ndarray]:
-        """
-        TODO: Integrate actual TTS model (e.g., gTTS, TacotronV2, etc.).
-
-        For now, in debug mode, generates a loud tone with white noise.
+        """Convert text to a 16 kHz mono float32 waveform (offline).
 
         Args:
             text: Input text to convert to speech.
 
         Returns:
-            Audio array (float32, 16kHz) or None if TTS fails.
+            Audio array (float32, 16kHz) or None if TTS is unavailable.
         """
-        if SPEECH_CONFIG["debug"]:
-            # Debug: Generate loud tone with white noise
-            sample_rate = 16000
-            duration_sec = 2.0
-            num_samples = int(sample_rate * duration_sec)
-
-            # Random frequency between 200-1000 Hz
-            frequency = np.random.randint(200, 1000)
-            t = np.linspace(0, duration_sec, num_samples, dtype=np.float32)
-            
-            # Sine wave tone
-            sine_wave = np.sin(2 * np.pi * frequency * t).astype(np.float32)
-            
-            # Add white noise component (30% noise, 70% tone)
-            white_noise = np.random.uniform(-1, 1, num_samples).astype(np.float32)
-            audio = (sine_wave * 0.7 + white_noise * 0.3).astype(np.float32)
-            
-            # Increase amplitude (louder)
-            audio = (audio * 0.8).astype(np.float32)
-            
-            # Clip to prevent distortion
-            audio = np.clip(audio, -1.0, 1.0).astype(np.float32)
-
-            self.get_logger().info(f"DEBUG TTS: Generated {frequency}Hz tone + noise for text: '{text}'")
-            return audio
-        else:
-            self.get_logger().warn("TTS not implemented; set debug=True for placeholder")
+        audio = synthesize_to_array(text, target_rate=16000)
+        if audio is None or audio.size == 0:
+            self.get_logger().error(
+                "TTS produced no audio (is pyttsx3 + espeak installed in this environment?)"
+            )
             return None
+
+        self.get_logger().info(f"TTS generated {audio.shape[0]} samples for: '{text}'")
+        return audio
 
     def generate_speech(self, text: str) -> None:
         """
