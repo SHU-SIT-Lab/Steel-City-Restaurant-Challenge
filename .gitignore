@@ -308,3 +308,10 @@ scripts/speech/orders.json
 
 # Firebase service-account keys — never commit these (both Admin SDK keys match)
 **/*firebase-adminsdk*.json
+
+# Audio + ML model binaries (debug captures, checkpoints, weights — never commit)
+*.wav
+*.ckpt
+*.pt
+*.pth
+*.onnx
