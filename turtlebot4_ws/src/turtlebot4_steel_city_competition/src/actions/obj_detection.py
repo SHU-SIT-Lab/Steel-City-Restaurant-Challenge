@@ -52,24 +52,18 @@ class ObjectDetection(Node):
 		
 		# Store raw frame for display
 		self.turtlebot_img = raw_frame
-		self.processed_img = raw_frame
 
-		# Uncomment to enable YOLO object detection processing
-		# (
-		# 	self.processed_img,
-		# 	self.people_detected,
-		# 	self.table_detected,
-		# 	self.occupied_table,
-		# 	self.free_table,
-		# 	self.objects_detected
-		# ) = process_frame(raw_frame)
-
-		# Swap display between raw and processed for debugging:
-		# self.turtlebot_img = self.processed_img  # Show YOLO annotations
-		# self.turtlebot_img = raw_frame  # Show raw camera feed (default)
+		(
+			self.processed_img,
+			self.people_detected,
+			self.table_detected,
+			self.occupied_table,
+			self.free_table,
+			self.objects_detected
+		) = process_frame(raw_frame)
 
 		if self.debug and self.turtlebot_img is not None:
-			cv2.imshow(OBJ_DETECTION_CONFIG["debug_window_name"], self.turtlebot_img)
+			cv2.imshow(OBJ_DETECTION_CONFIG["debug_window_name"], self.processed_img)
 			cv2.waitKey(1)
 
 
