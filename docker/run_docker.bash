@@ -16,5 +16,5 @@ docker run -it \
        --net=host \
        --privileged \
        --gpus all \
-       aung9htet/ubuntu-22.04:jammy
+       aung9htet/ubuntu-22.04:jazzy
 echo "Done" 
