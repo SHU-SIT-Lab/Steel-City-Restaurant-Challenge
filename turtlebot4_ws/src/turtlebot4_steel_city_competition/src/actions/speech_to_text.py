@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 
+import queue
+import sys
 import time
 from pathlib import Path
-import sys
 from typing import Any, Optional
-
-import queue
 
 import cv2
 import numpy as np
@@ -13,79 +12,59 @@ import rclpy
 from rclpy.node import Node
 from std_msgs.msg import String
 
-# Make sibling modules in src importable when this script is run directly.
 SRC_DIR = Path(__file__).resolve().parents[1]
 if str(SRC_DIR) not in sys.path:
     sys.path.insert(0, str(SRC_DIR))
 
 from helpers.retrieve_mic import AudioData, MIC_CONFIG, process_mic_bytes
+from helpers import stt
 
 
-# --- Speech-to-text (Whisper) settings ---
-STT_CONFIG = {
-    "whisper_model": "base",        # tiny | base | small | medium (bigger = better, slower)
-    "language": "en",
-    "speech_rms_threshold": 0.05,   # chunk loudness above this counts as speech
-    "silence_seconds": 0.8,         # a pause this long ends an utterance
-    "min_utterance_seconds": 0.3,   # ignore shorter blips
-    "max_utterance_seconds": 15.0,  # force-finish very long speech
-    "text_topic": "/speech_text",
-}
-
-_whisper_model = None
-
-
-def load_whisper_model(name: str | None = None):
-    """Load and cache the Whisper model (imported lazily to keep startup light)."""
-    global _whisper_model
-    if _whisper_model is None:
-        import whisper
-        _whisper_model = whisper.load_model(name or STT_CONFIG["whisper_model"])
-    return _whisper_model
-
-
-def transcribe_array(audio: np.ndarray) -> str:
-    """Transcribe a float32 16 kHz mono numpy array to text (no ffmpeg needed)."""
-    if audio is None or audio.size == 0:
-        return ""
-    model = load_whisper_model()
-    result = model.transcribe(
-        audio.astype(np.float32), language=STT_CONFIG["language"], fp16=False
-    )
-    return result.get("text", "").strip()
-
-
-# Global params for speech action.
-SPEECH_CONFIG = {
-    "debug": True,
-    "debug_window_name": "turtlebot_mic_waveform",
-    "graph_width": 900,
-    "graph_height": 300,
-    "graph_samples": 1024,
-    "debug_refresh_hz": 20.0,
+CONFIG = {
+    "debug": False,
+    "debug_record_duration_sec": 3.0,
+    "silence_duration_sec": 0.8,
+    "min_audio_seconds": 0.4,
+    "max_audio_seconds": 10.0,
+    "min_speech_threshold": 0.01,
+    "max_speech_threshold": 0.12,
+    "speech_threshold_multiplier": 3.0,
+    "noise_ema_alpha": 0.08,
+    "speech_text_topic": "/speech_text",
 }
 
 
 class SpeechToText(Node):
     def __init__(self) -> None:
         super().__init__("speech_to_text")
-        self.debug = SPEECH_CONFIG["debug"]
+
+        self.debug = CONFIG["debug"]
         self.turtlebot_audio: Optional[np.ndarray] = None
-        self.msg_count = 0
-        self.last_msg_time: Optional[float] = None
 
-        # --- Utterance assembly (streaming voice-activity detection) ---
-        self._utterance_buffer: list[np.ndarray] = []
-        self._is_speaking = False
-        self._silence_elapsed = 0.0
-        self._utterance_len = 0.0
+        self._speech_active = False
+        self._speech_frames: list[np.ndarray] = []
+        self._speech_samples = 0
+        self._silent_samples = 0
+
+        self._noise_rms = CONFIG["min_speech_threshold"]
+        self._has_noise_baseline = False
+
+        self._last_msg_time: Optional[float] = None
+        self._estimated_input_rate = int(MIC_CONFIG["input_sample_rate"])
+
+        self._debug_start_time: Optional[float] = None
+        self._debug_audio_frames: list[np.ndarray] = []
+        self._debug_raw_frames: list[np.ndarray] = []
+        self._debug_saved_once = False
+
         self._utterances: "queue.Queue[str]" = queue.Queue()
-        self._sample_rate = MIC_CONFIG["whisper_sample_rate"]
 
-        # Publish finished transcripts so other nodes may subscribe if they prefer.
-        self.text_publisher = self.create_publisher(String, STT_CONFIG["text_topic"], 10)
+        self.text_publisher = self.create_publisher(
+            String,
+            CONFIG["speech_text_topic"],
+            10,
+        )
 
-        # Subscribe to TurtleBot microphone topic.
         self.subscription = self.create_subscription(
             AudioData,
             MIC_CONFIG["topic"],
@@ -93,158 +72,258 @@ class SpeechToText(Node):
             MIC_CONFIG["queue_size"],
         )
 
-        # Refresh debug graph continuously so it feels live.
-        if self.debug:
-            self.debug_timer = self.create_timer(1.0 / SPEECH_CONFIG["debug_refresh_hz"], self._debug_update)
+        self.get_logger().info(
+            f"Speech-to-Text started on {MIC_CONFIG['topic']} "
+            f"(debug={self.debug}, text_topic={CONFIG['speech_text_topic']})"
+        )
 
     def _mic_callback(self, msg: Any) -> None:
-        # Handle both AudioData and UInt8MultiArray message types.
-        data = msg.data
-        if isinstance(data, list):
-            data = bytes(data)
-        
-        processed = process_mic_bytes(data)
-        self.msg_count += 1
-        self.last_msg_time = time.time()
+        data = msg.data if isinstance(msg.data, bytes) else bytes(msg.data)
 
-        # Use whisper_audio as the default input for your speech model.
+        source_rate = self._estimate_input_sample_rate(data)
+        processed = process_mic_bytes(data, input_sample_rate=source_rate)
+
         self.turtlebot_audio = processed.whisper_audio
 
-        self.todo_run_whisper(self.turtlebot_audio)
-
-    def _debug_update(self) -> None:
-        if not self.debug:
+        if self.debug:
+            self._record_debug_audio(data, source_rate)
             return
 
-        graph = self._build_waveform_graph(self.turtlebot_audio)
-        self._draw_status(graph)
-        cv2.imshow(SPEECH_CONFIG["debug_window_name"], graph)
-        cv2.waitKey(1)
+        self._process_speech()
 
-    def _build_waveform_graph(self, audio: Optional[np.ndarray]) -> np.ndarray:
-        width = SPEECH_CONFIG["graph_width"]
-        height = SPEECH_CONFIG["graph_height"]
-        samples = SPEECH_CONFIG["graph_samples"]
+    def _estimate_input_sample_rate(self, data: bytes) -> int:
+        chunk_samples = len(data) // int(MIC_CONFIG["sample_width_bytes"])
+        now = time.time()
 
-        canvas = np.zeros((height, width, 3), dtype=np.uint8)
-        mid_y = height // 2
+        if self._last_msg_time is not None and chunk_samples > 0:
+            dt = now - self._last_msg_time
 
-        if audio is None or audio.size == 0:
-            cv2.putText(canvas, "Waiting for mic data...", (20, 40), cv2.FONT_HERSHEY_SIMPLEX, 0.9, (180, 180, 180), 2)
-            return canvas
+            if dt > 1e-3:
+                instantaneous_rate = chunk_samples / dt
 
-        # Keep last N samples so the graph stays stable and easy to read.
-        segment = audio[-samples:] if audio.size > samples else audio
-        x = np.linspace(0, width - 1, num=segment.size, dtype=np.int32)
-        y = (mid_y - (segment * (height * 0.45))).astype(np.int32)
-        points = np.stack((x, y), axis=1).reshape((-1, 1, 2))
+                if 8000.0 <= instantaneous_rate <= 96000.0:
+                    alpha = 0.2
+                    self._estimated_input_rate = int(
+                        round(
+                            (1.0 - alpha) * self._estimated_input_rate
+                            + alpha * instantaneous_rate
+                        )
+                    )
 
-        cv2.line(canvas, (0, mid_y), (width - 1, mid_y), (70, 70, 70), 1)
-        cv2.polylines(canvas, [points], isClosed=False, color=(0, 255, 0), thickness=1)
+        self._last_msg_time = now
 
-        return canvas
+        common_rates = [8000, 11025, 16000, 22050, 24000, 32000, 44100, 48000]
+        snapped_rate = min(
+            common_rates,
+            key=lambda rate: abs(rate - self._estimated_input_rate),
+        )
 
-    def _draw_status(self, canvas: np.ndarray) -> None:
-        status = f"topic: {MIC_CONFIG['topic']}"
-        count = f"messages: {self.msg_count}"
+        MIC_CONFIG["input_sample_rate"] = int(snapped_rate)
 
-        if self.last_msg_time is None:
-            age_text = "last msg: never"
-            color = (0, 180, 255)
+        return int(snapped_rate)
+
+    def _record_debug_audio(self, data: bytes, source_rate: int) -> None:
+        if self._debug_saved_once:
+            return
+
+        if self._debug_start_time is None:
+            self._debug_start_time = time.time()
+            print(
+                f"[DEBUG] Recording {CONFIG['debug_record_duration_sec']:.1f}s "
+                f"from {MIC_CONFIG['topic']} at estimated {source_rate} Hz..."
+            )
+
+        raw_chunk = np.frombuffer(data, dtype=np.int16).copy()
+
+        if raw_chunk.size > 0:
+            self._debug_raw_frames.append(raw_chunk)
+
+        if self.turtlebot_audio is not None:
+            self._debug_audio_frames.append(self.turtlebot_audio.copy())
+
+        elapsed = time.time() - self._debug_start_time
+
+        if elapsed < float(CONFIG["debug_record_duration_sec"]):
+            return
+
+        timestamp = time.strftime("%Y%m%d_%H%M%S")
+        debug_dir = Path(__file__).parent / "debug"
+        debug_dir.mkdir(exist_ok=True)
+
+        try:
+            import scipy.io.wavfile as wavfile
+
+            raw_audio = np.concatenate(self._debug_raw_frames, axis=0)
+
+            target_samples = int(
+                float(CONFIG["debug_record_duration_sec"]) * source_rate
+            )
+
+            if raw_audio.size > target_samples:
+                raw_audio = raw_audio[:target_samples]
+
+            raw_filename = debug_dir / f"stt_topic_raw_3s_{timestamp}.wav"
+
+            wavfile.write(
+                str(raw_filename),
+                int(source_rate),
+                raw_audio.astype(np.int16),
+            )
+
+            processed = process_mic_bytes(
+                raw_audio.tobytes(),
+                input_sample_rate=source_rate,
+            )
+
+            whisper_audio = processed.whisper_audio.astype(np.float32)
+            whisper_filename = debug_dir / f"stt_topic_whisper_3s_{timestamp}.wav"
+
+            wavfile.write(
+                str(whisper_filename),
+                int(MIC_CONFIG["whisper_sample_rate"]),
+                (whisper_audio * 32767).astype(np.int16),
+            )
+
+            raw_peak = (
+                np.max(np.abs(raw_audio.astype(np.float32))) / 32768.0
+                if raw_audio.size
+                else 0.0
+            )
+
+            whisper_peak = (
+                float(np.max(np.abs(whisper_audio)))
+                if whisper_audio.size
+                else 0.0
+            )
+
+            print(f"[DEBUG] Saved raw capture to {raw_filename}")
+            print(f"[DEBUG] Saved whisper capture to {whisper_filename}")
+            print(
+                f"[DEBUG] Raw duration: {raw_audio.size / float(source_rate):.2f}s, "
+                f"raw peak: {raw_peak:.3f}, whisper peak: {whisper_peak:.3f}"
+            )
+
+        except Exception as exc:
+            print(f"[ERROR] Failed to save debug audio: {exc}")
+
+        self._debug_saved_once = True
+        self._debug_audio_frames = []
+        self._debug_raw_frames = []
+
+    def _process_speech(self) -> None:
+        if self.turtlebot_audio is None:
+            return
+
+        chunk = self.turtlebot_audio.astype(np.float32).flatten()
+
+        if chunk.size == 0:
+            return
+
+        rms = float(np.sqrt(np.mean(chunk ** 2)))
+
+        if not self._speech_active:
+            if not self._has_noise_baseline:
+                self._noise_rms = max(rms, CONFIG["min_speech_threshold"])
+                self._has_noise_baseline = True
+            else:
+                alpha = CONFIG["noise_ema_alpha"]
+                self._noise_rms = (1.0 - alpha) * self._noise_rms + alpha * rms
+
+        threshold = self._noise_rms * CONFIG["speech_threshold_multiplier"]
+        threshold = max(threshold, CONFIG["min_speech_threshold"])
+        threshold = min(threshold, CONFIG["max_speech_threshold"])
+
+        if not self._speech_active and rms > threshold:
+            self._speech_active = True
+            self._speech_frames = [chunk.copy()]
+            self._speech_samples = chunk.size
+            self._silent_samples = 0
+            print("[STT] Recording started...")
+            return
+
+        if not self._speech_active:
+            return
+
+        self._speech_frames.append(chunk.copy())
+        self._speech_samples += chunk.size
+
+        if rms > threshold:
+            self._silent_samples = 0
         else:
-            age_sec = time.time() - self.last_msg_time
-            age_text = f"last msg: {age_sec:.2f}s ago"
-            color = (0, 255, 0) if age_sec < 1.0 else (0, 180, 255)
+            self._silent_samples += chunk.size
 
-        cv2.putText(canvas, status, (20, 28), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (170, 170, 170), 1)
-        cv2.putText(canvas, count, (20, 52), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (170, 170, 170), 1)
-        cv2.putText(canvas, age_text, (20, 76), cv2.FONT_HERSHEY_SIMPLEX, 0.6, color, 2)
+        sample_rate = int(MIC_CONFIG["whisper_sample_rate"])
+        silence_samples = int(CONFIG["silence_duration_sec"] * sample_rate)
+        max_samples = int(CONFIG["max_audio_seconds"] * sample_rate)
 
-    def todo_run_whisper(self, turtlebot_audio: Optional[np.ndarray]) -> None:
-        """Assemble streamed mic chunks into utterances and transcribe them.
+        silence_reached = self._silent_samples >= silence_samples
+        max_duration_reached = self._speech_samples >= max_samples
 
-        Called once per mic message with that chunk's audio. We buffer chunks,
-        watch for a pause (silence), then transcribe the whole utterance with
-        Whisper and make the text available via get_next_utterance() and the
-        /speech_text topic.
-        """
-        if turtlebot_audio is None or turtlebot_audio.size == 0:
-            return
-
-        chunk = turtlebot_audio.astype(np.float32)
-        chunk_seconds = chunk.shape[0] / float(self._sample_rate)
-        rms = float(np.sqrt(np.mean(chunk * chunk)))
-        is_speech = rms >= STT_CONFIG["speech_rms_threshold"]
-
-        if is_speech:
-            self._is_speaking = True
-            self._silence_elapsed = 0.0
-        elif self._is_speaking:
-            self._silence_elapsed += chunk_seconds
-
-        if self._is_speaking:
-            self._utterance_buffer.append(chunk)
-            self._utterance_len += chunk_seconds
-
-        ended = self._is_speaking and self._silence_elapsed >= STT_CONFIG["silence_seconds"]
-        too_long = self._utterance_len >= STT_CONFIG["max_utterance_seconds"]
-        if ended or too_long:
+        if silence_reached or max_duration_reached:
             self._finalize_utterance()
 
     def _finalize_utterance(self) -> None:
-        """Transcribe the buffered utterance and publish the text."""
-        buffer = self._utterance_buffer
-        length = self._utterance_len
-        # Reset state for the next utterance before the (slow) transcription.
-        self._utterance_buffer = []
-        self._is_speaking = False
-        self._silence_elapsed = 0.0
-        self._utterance_len = 0.0
+        sample_rate = int(MIC_CONFIG["whisper_sample_rate"])
+        min_samples = int(CONFIG["min_audio_seconds"] * sample_rate)
 
-        if not buffer or length < STT_CONFIG["min_utterance_seconds"]:
+        frames = self._speech_frames
+        total_samples = self._speech_samples
+
+        self._speech_active = False
+        self._speech_frames = []
+        self._speech_samples = 0
+        self._silent_samples = 0
+
+        if not frames or total_samples < min_samples:
             return
 
-        audio = np.concatenate(buffer)
+        audio = np.concatenate(frames, axis=0).astype(np.float32)
+
+        duration = audio.size / float(sample_rate)
+        print(f"[STT] Recording finished ({duration:.2f}s)")
+        print("[STT] Transcribing...")
+
         try:
-            text = transcribe_array(audio)
+            text = stt.transcribe_audio(audio)
         except Exception as exc:
-            self.get_logger().error(f"Whisper failed: {exc}")
+            self.get_logger().error(f"STT transcription failed: {exc}")
             return
 
         if not text:
             return
 
+        text = text.strip()
+
+        if not text:
+            return
+
+        print(f"[STT] ✓ {text}")
         self.get_logger().info(f"Heard: {text!r}")
+
         self._utterances.put(text)
         self.text_publisher.publish(String(data=text))
 
     def get_next_utterance(self, timeout: float = 8.0) -> Optional[str]:
-        """Wait up to `timeout` seconds for the next transcript, else return None.
-
-        Safe to call from a behavior: the mic callback runs on another executor
-        thread (MultiThreadedExecutor), so it keeps filling the queue while this
-        waits. This is the request-with-timeout the take-order behavior uses.
-        """
         try:
             return self._utterances.get(timeout=timeout)
         except queue.Empty:
             return None
 
     def destroy_node(self) -> bool:
-        if self.debug:
-            cv2.destroyAllWindows()
         return super().destroy_node()
 
 
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = SpeechToText()
+
     try:
         rclpy.spin(node)
     except KeyboardInterrupt:
         pass
     finally:
         node.destroy_node()
+
         if rclpy.ok():
             rclpy.shutdown()
 

@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 
 from dataclasses import dataclass
+import os
 from typing import Any, Dict, Optional
 
 import numpy as np
@@ -19,18 +20,22 @@ except ImportError:
 MIC_CONFIG = {
 	"topic": "/audio",
 	"queue_size": 20,
-	"input_sample_rate": 16000,
+	"input_sample_rate": int(os.environ.get("MIC_INPUT_SAMPLE_RATE", "16000")),
 	"whisper_sample_rate": 16000,
 	"sample_width_bytes": 2,
 	"upsample_scale": 2.0,
 	"downsample_scale": 0.5,
-	"normalize": True,
+	# Keep raw chunks unnormalized to preserve dynamics across chunk boundaries.
+	"normalize_whisper": False,
+	# Auxiliary resamples are optional and disabled by default for lower callback load.
+	"compute_aux_resamples": False,
 }
 
 
 @dataclass
 class MicFrames:
 	raw_bytes: bytes = b""
+	source_sample_rate: Optional[int] = None
 	raw_audio: Optional[np.ndarray] = None
 	upsampled_audio: Optional[np.ndarray] = None
 	downsampled_audio: Optional[np.ndarray] = None
@@ -45,7 +50,7 @@ def bytes_to_float_audio(payload: bytes, sample_width_bytes: int = 2) -> np.ndar
 	if sample_width_bytes != 2:
 		raise ValueError("Only 16-bit PCM is supported right now.")
 
-	pcm = np.frombuffer(payload, dtype=np.int16)
+	pcm = np.frombuffer(payload, dtype="<i2")
 	return (pcm.astype(np.float32) / 32768.0).copy()
 
 
@@ -71,21 +76,31 @@ def resample_audio(audio: np.ndarray, from_rate: int, to_rate: int) -> np.ndarra
 	return np.interp(x_new, x_old, audio).astype(np.float32)
 
 
-def upsample_audio(audio: np.ndarray, scale: Optional[float] = None) -> np.ndarray:
+def upsample_audio(
+	audio: np.ndarray,
+	input_sample_rate: Optional[int] = None,
+	scale: Optional[float] = None,
+) -> np.ndarray:
+	from_rate = int(input_sample_rate) if input_sample_rate is not None else int(MIC_CONFIG["input_sample_rate"])
 	value = scale if scale is not None else MIC_CONFIG["upsample_scale"]
-	to_rate = max(1, int(MIC_CONFIG["input_sample_rate"] * value))
-	return resample_audio(audio, MIC_CONFIG["input_sample_rate"], to_rate)
+	to_rate = max(1, int(from_rate * value))
+	return resample_audio(audio, from_rate, to_rate)
 
 
-def downsample_audio(audio: np.ndarray, scale: Optional[float] = None) -> np.ndarray:
+def downsample_audio(
+	audio: np.ndarray,
+	input_sample_rate: Optional[int] = None,
+	scale: Optional[float] = None,
+) -> np.ndarray:
+	from_rate = int(input_sample_rate) if input_sample_rate is not None else int(MIC_CONFIG["input_sample_rate"])
 	value = scale if scale is not None else MIC_CONFIG["downsample_scale"]
-	to_rate = max(1, int(MIC_CONFIG["input_sample_rate"] * value))
-	return resample_audio(audio, MIC_CONFIG["input_sample_rate"], to_rate)
+	to_rate = max(1, int(from_rate * value))
+	return resample_audio(audio, from_rate, to_rate)
 
 
 def prepare_for_whisper(audio: np.ndarray, from_rate: int) -> np.ndarray:
 	whisper_audio = resample_audio(audio, from_rate, MIC_CONFIG["whisper_sample_rate"])
-	if MIC_CONFIG["normalize"]:
+	if MIC_CONFIG["normalize_whisper"]:
 		whisper_audio = normalize_audio(whisper_audio)
 	return whisper_audio
 
@@ -108,18 +123,27 @@ def extract_audio_features(audio: np.ndarray, sample_rate: int) -> Dict[str, flo
 	}
 
 
-def process_mic_bytes(payload: bytes) -> MicFrames:
+def process_mic_bytes(payload: bytes, input_sample_rate: Optional[int] = None) -> MicFrames:
+	source_sample_rate = (
+		int(input_sample_rate)
+		if input_sample_rate is not None and int(input_sample_rate) > 0
+		else int(MIC_CONFIG["input_sample_rate"])
+	)
 	raw_audio = bytes_to_float_audio(payload, MIC_CONFIG["sample_width_bytes"])
-	if MIC_CONFIG["normalize"]:
-		raw_audio = normalize_audio(raw_audio)
 
-	upsampled = upsample_audio(raw_audio)
-	downsampled = downsample_audio(raw_audio)
-	whisper_audio = prepare_for_whisper(raw_audio, MIC_CONFIG["input_sample_rate"])
+	if MIC_CONFIG["compute_aux_resamples"]:
+		upsampled = upsample_audio(raw_audio, input_sample_rate=source_sample_rate)
+		downsampled = downsample_audio(raw_audio, input_sample_rate=source_sample_rate)
+	else:
+		upsampled = None
+		downsampled = None
+
+	whisper_audio = prepare_for_whisper(raw_audio, source_sample_rate)
 	features = extract_audio_features(whisper_audio, MIC_CONFIG["whisper_sample_rate"])
 
 	return MicFrames(
 		raw_bytes=payload,
+		source_sample_rate=source_sample_rate,
 		raw_audio=raw_audio,
 		upsampled_audio=upsampled,
 		downsampled_audio=downsampled,
