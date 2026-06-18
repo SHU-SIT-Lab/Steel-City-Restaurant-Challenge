@@ -17,6 +17,10 @@ const columns: OrderStatus[] = [
   "delivered",
 ];
 
+// Cap cards per column so the board fits its window without scrolling; older ones
+// (typically a growing "delivered" history) collapse into a "+N more" line.
+const MAX_VISIBLE_ORDERS = 2;
+
 interface OrdersBoardProps {
   role: Role;
   orders: Order[];
@@ -83,12 +87,15 @@ export function OrdersBoard({
         <button disabled={!canUpdateOrders(role) || saving} onClick={openCreateOrder}>Create order</button>
       </div>
       <div className="orders-columns">
-        {columns.map((status) => (
-          <article className="order-column" key={status}>
-            <h3>{status.replace("_", " ")}</h3>
-            {orders
-              .filter((order) => order.status === status)
-              .map((order) => {
+        {columns.map((status) => {
+          const columnOrders = orders.filter((order) => order.status === status);
+          const visible = columnOrders.slice(0, MAX_VISIBLE_ORDERS);
+          const hiddenCount = columnOrders.length - visible.length;
+
+          return (
+            <article className="order-column" key={status}>
+              <h3>{status.replace("_", " ")}</h3>
+              {visible.map((order) => {
                 const table = tables.find((candidate) => candidate.id === order.table_id);
                 const items = normalizeOrderItems(order.items, menu);
                 const canAdvance = status === "ready" ? hasMinimumRole(role, "manager") : canUpdateOrders(role);
@@ -97,18 +104,18 @@ export function OrdersBoard({
                   <div className="order-card" key={order.id}>
                     <strong>{table ? `Table ${table.table_number}` : order.table_id}</strong>
                     <span>{items.map((item) => `${item.quantity}x ${item.name}`).join(", ")}</span>
-                    <small>{order.assigned_robot ? `Robot: ${order.assigned_robot}` : "No robot assigned"}</small>
-                    <button
-                      disabled={!canAdvance || saving || status === "delivered"}
-                      onClick={() => setActiveOrder(order)}
-                    >
-                      {status === "ready" ? "Request delivery" : "Advance"}
-                    </button>
+                    {status !== "delivered" ? (
+                      <button disabled={!canAdvance || saving} onClick={() => setActiveOrder(order)}>
+                        {status === "ready" ? "Request delivery" : "Advance"}
+                      </button>
+                    ) : null}
                   </div>
                 );
               })}
-          </article>
-        ))}
+              {hiddenCount > 0 ? <p className="order-column__more">+{hiddenCount} more</p> : null}
+            </article>
+          );
+        })}
       </div>
       <Modal eyebrow="Order builder" onClose={() => setCreateOpen(false)} open={createOpen} title="Create Order">
         <form className="form-stack" onSubmit={handleCreateOrder}>
