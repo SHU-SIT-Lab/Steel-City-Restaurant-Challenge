@@ -13,10 +13,16 @@
   box-sizing: border-box;
 }
 
+html,
+#root {
+  height: 100%;
+}
+
 body {
   margin: 0;
   min-width: 320px;
-  min-height: 100vh;
+  height: 100%;
+  overflow: hidden;
   background:
     radial-gradient(circle at 16% 10%, rgba(67, 91, 84, 0.22), transparent 34%),
     linear-gradient(135deg, #111615 0%, #18201e 52%, #0e1211 100%);
@@ -121,8 +127,23 @@ dl {
 
 .app-shell {
   width: min(1600px, 100%);
+  height: 100dvh;
   margin: 0 auto;
-  padding: 1rem;
+  padding: 0.75rem;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  min-height: 0;
+  overflow: hidden;
+}
+
+.ops-body {
+  display: grid;
+  grid-template-rows: 1fr auto;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  min-height: 0;
+  overflow: hidden;
 }
 
 .top-bar,
@@ -148,6 +169,7 @@ dl {
 
 .top-bar h1 {
   font-size: clamp(1.6rem, 3vw, 2.5rem);
+  white-space: nowrap;
 }
 
 .top-bar__status,
@@ -280,6 +302,9 @@ dl {
   gap: 0.9rem;
   border-top: 0;
   padding: 0.9rem;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
 }
 
 .left-rail,
@@ -287,6 +312,9 @@ dl {
   display: grid;
   gap: 0.9rem;
   align-content: start;
+  min-height: 0;
+  min-width: 0;
+  overflow-y: auto;
 }
 
 .panel,
@@ -399,12 +427,16 @@ dd {
 }
 
 .floor-plan {
-  min-height: 620px;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  min-height: 0;
+  min-width: 0;
 }
 
 .floor-plan__canvas {
   position: relative;
-  min-height: 540px;
+  min-height: clamp(260px, 38vh, 540px);
+  height: 100%;
   overflow: hidden;
   border: 1px solid rgba(238, 244, 236, 0.1);
   border-radius: 8px;
@@ -532,7 +564,10 @@ dd {
 }
 
 .orders-board {
-  margin-top: 0.9rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  max-height: clamp(190px, 30vh, 320px);
 }
 
 .modal-backdrop {
@@ -654,8 +689,12 @@ dd {
 .orders-columns {
   display: grid;
   grid-template-columns: repeat(8, minmax(180px, 1fr));
+  grid-template-rows: minmax(0, 1fr);
   gap: 0.75rem;
+  flex: 1;
+  min-height: 0;
   overflow-x: auto;
+  overflow-y: hidden;
   padding-bottom: 0.3rem;
 }
 
@@ -663,7 +702,8 @@ dd {
   display: grid;
   align-content: start;
   gap: 0.7rem;
-  min-height: 220px;
+  min-height: 0;
+  overflow-y: auto;
   border-radius: 8px;
   padding: 0.75rem;
   background: rgba(16, 24, 22, 0.72);
@@ -680,32 +720,49 @@ dd {
   gap: 0.5rem;
 }
 
-@media (max-width: 1100px) {
-  .top-bar {
-    align-items: flex-start;
-    flex-direction: column;
-  }
-
-  .kpi-strip {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+/* Tablet landscape (1024-1200): keep the fitted multi-column 100dvh layout, tighter. */
+@media (max-width: 1200px) {
+  .app-shell {
+    padding: 0.6rem;
   }
 
   .ops-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(210px, 0.7fr) minmax(340px, 1.7fr) minmax(230px, 0.85fr);
+    gap: 0.6rem;
+    padding: 0.7rem;
   }
 
-  .floor-plan {
-    min-height: auto;
+  .kpi-card strong {
+    font-size: 1.6rem;
   }
 
-  .floor-plan__canvas {
-    min-height: 460px;
+  .orders-columns {
+    grid-template-columns: repeat(8, minmax(150px, 1fr));
+  }
+
+  .table-card {
+    min-width: 108px;
+    padding: 0.5rem;
+    font-size: 0.82rem;
   }
 }
 
-@media (max-width: 680px) {
+/* Below tablet landscape (portrait phones / small tablets): fall back to a scrollable page. */
+@media (max-width: 899px) {
+  html,
+  body {
+    height: auto;
+    overflow: auto;
+  }
+
   .app-shell {
-    padding: 0.6rem;
+    height: auto;
+    display: block;
+  }
+
+  .top-bar {
+    align-items: flex-start;
+    flex-direction: column;
   }
 
   .kpi-strip {
@@ -717,17 +774,242 @@ dd {
     min-width: 150px;
   }
 
-  .floor-plan__canvas {
-    min-height: 390px;
+  .ops-body,
+  .ops-grid,
+  .left-rail,
+  .right-rail,
+  .floor-plan {
+    display: block;
+    overflow: visible;
   }
 
-  .table-card {
-    min-width: 112px;
-    padding: 0.5rem;
-    font-size: 0.86rem;
+  .ops-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .left-rail > * + *,
+  .right-rail > * + * {
+    margin-top: 0.9rem;
+  }
+
+  .floor-plan__canvas {
+    min-height: 420px;
+  }
+
+  .orders-board {
+    max-height: none;
+    margin-top: 0.9rem;
+  }
+
+  .order-column {
+    min-height: 200px;
+    overflow: visible;
   }
 
   .command-row {
     grid-template-columns: 1fr;
+  }
+}
+
+/* ---- View selector (landing) ---- */
+.view-selector {
+  height: 100dvh;
+  display: grid;
+  place-content: center;
+  justify-items: center;
+  gap: 2rem;
+  padding: 1.5rem;
+  text-align: center;
+}
+
+.view-selector h1 {
+  font-size: clamp(2rem, 5vw, 3rem);
+}
+
+.view-selector__sub {
+  margin-top: 0.5rem;
+  color: #aebbb4;
+}
+
+.view-selector__options {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(220px, 320px));
+  gap: 1.5rem;
+}
+
+.view-card {
+  display: grid;
+  gap: 0.6rem;
+  min-height: 9rem;
+  padding: 1.5rem;
+  text-align: left;
+  align-content: center;
+  background: rgba(20, 28, 26, 0.86);
+  border-color: rgba(206, 221, 212, 0.18);
+}
+
+.view-card strong {
+  font-size: 1.4rem;
+}
+
+.view-card span {
+  color: #aebbb4;
+  font-weight: 600;
+}
+
+/* ---- Customer ordering screen ---- */
+.customer-shell {
+  width: min(1280px, 100%);
+  height: 100dvh;
+  margin: 0 auto;
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  padding: 0.75rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.customer-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  flex-wrap: wrap;
+  border: 1px solid rgba(206, 221, 212, 0.12);
+  border-radius: 8px;
+  padding: 0.9rem 1.1rem;
+  background: rgba(20, 28, 26, 0.86);
+}
+
+.customer-header h1 {
+  font-size: clamp(1.4rem, 3vw, 2rem);
+}
+
+.customer-header__status {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  flex-wrap: wrap;
+}
+
+.customer-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(280px, 360px);
+  gap: 0.75rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.customer-main {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 0.75rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.customer-tables,
+.customer-menu-wrap,
+.customer-cart {
+  border: 1px solid rgba(206, 221, 212, 0.12);
+  border-radius: 8px;
+  padding: 0.9rem;
+  background: rgba(20, 28, 26, 0.86);
+}
+
+.customer-tables {
+  display: grid;
+  gap: 0.5rem;
+  max-height: 30vh;
+  overflow-y: auto;
+}
+
+.customer-menu-wrap {
+  display: grid;
+  grid-template-rows: auto 1fr;
+  gap: 0.5rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.customer-menu {
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.customer-cart {
+  display: grid;
+  grid-template-rows: auto 1fr auto;
+  gap: 0.75rem;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.customer-cart__lines {
+  display: grid;
+  gap: 0.4rem;
+  align-content: start;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.cart-line {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border: 1px solid rgba(238, 244, 236, 0.1);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  background: #18211f;
+}
+
+.customer-cart__footer {
+  display: grid;
+  gap: 0.6rem;
+}
+
+.customer-place {
+  width: 100%;
+  padding: 0.8rem;
+  font-size: 1.05rem;
+}
+
+.customer-confirm {
+  display: grid;
+  gap: 0.6rem;
+  align-content: center;
+  text-align: center;
+  height: 100%;
+}
+
+@media (max-width: 680px) {
+  .view-selector__options {
+    grid-template-columns: 1fr;
+  }
+}
+
+@media (max-width: 899px) {
+  .customer-shell {
+    height: auto;
+    overflow: auto;
+  }
+
+  .customer-body,
+  .customer-main,
+  .customer-menu,
+  .customer-cart {
+    display: block;
+    overflow: visible;
+  }
+
+  .customer-tables {
+    max-height: none;
+  }
+
+  .customer-body > * + * {
+    margin-top: 0.75rem;
   }
 }

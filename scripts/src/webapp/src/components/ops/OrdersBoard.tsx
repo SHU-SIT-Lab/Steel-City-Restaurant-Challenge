@@ -1,8 +1,9 @@
 import { useMemo, useState, type FormEvent } from "react";
 import { normalizeOrderItems } from "../../lib/firestore/converters";
 import { canUpdateOrders, hasMinimumRole } from "../../lib/rbac";
-import type { MenuItem, NormalizedOrderItem, Order, OrderStatus, Role, Table } from "../../types/firestore";
+import type { MenuItem, Order, OrderStatus, Role, Table } from "../../types/firestore";
 import type { AdvanceOrderInput, CreateOrderInput } from "../../lib/api/client";
+import { useOrderDraft } from "../../hooks/useOrderDraft";
 import { Modal, OptionCard } from "../ui/Modal";
 
 const columns: OrderStatus[] = [
@@ -37,9 +38,9 @@ export function OrdersBoard({
 }: OrdersBoardProps) {
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState(tables[0]?.id ?? "");
-  const [selectedItems, setSelectedItems] = useState<Record<string, number>>({});
-  const [notes, setNotes] = useState("");
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
+  const { selectedItems, setSelectedItems, notes, setNotes, toggleItem, changeQuantity, items, itemCount, reset } =
+    useOrderDraft(menu);
   const availableTables = useMemo(
     () => tables.filter((table) => table.status !== "unavailable"),
     [tables],
@@ -52,59 +53,14 @@ export function OrdersBoard({
     setCreateOpen(true);
   }
 
-  function toggleItem(item: MenuItem) {
-    setSelectedItems((current) => {
-      const quantity = current[item.id] ?? 0;
-
-      if (quantity > 0) {
-        const next = { ...current };
-        delete next[item.id];
-        return next;
-      }
-
-      return { ...current, [item.id]: 1 };
-    });
-  }
-
-  function changeQuantity(itemId: string, delta: number) {
-    setSelectedItems((current) => {
-      const nextQuantity = Math.max(0, Math.min(9, (current[itemId] ?? 0) + delta));
-      const next = { ...current };
-
-      if (nextQuantity === 0) {
-        delete next[itemId];
-      } else {
-        next[itemId] = nextQuantity;
-      }
-
-      return next;
-    });
-  }
-
   async function handleCreateOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    const items = Object.entries(selectedItems).reduce<NormalizedOrderItem[]>((acc, [itemId, quantity]) => {
-        const menuItem = menu.find((candidate) => candidate.id === itemId);
-
-        if (!menuItem) {
-          return acc;
-        }
-
-        acc.push({
-          item_id: menuItem.id,
-          name: menuItem.name,
-          quantity,
-          graspable: menuItem.graspable,
-        });
-
-        return acc;
-      }, []);
-
     await onCreateOrder({
       table_id: selectedTableId,
       notes,
       items,
     });
+    reset();
     setCreateOpen(false);
   }
 
@@ -202,7 +158,7 @@ export function OrdersBoard({
             <button className="button button--ghost" onClick={() => setCreateOpen(false)} type="button">
               Cancel
             </button>
-            <button disabled={saving || !selectedTableId || Object.keys(selectedItems).length === 0} type="submit">
+            <button disabled={saving || !selectedTableId || itemCount === 0} type="submit">
               Create order
             </button>
           </div>

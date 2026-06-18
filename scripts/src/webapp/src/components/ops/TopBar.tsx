@@ -8,9 +8,10 @@ interface TopBarProps {
   saving: boolean;
   error: string | null;
   onRefresh: () => void;
+  onSwitchView?: () => void;
 }
 
-export function TopBar({ role, robot, mode, loading, saving, error, onRefresh }: TopBarProps) {
+export function TopBar({ role, robot, mode, loading, saving, error, onRefresh, onSwitchView }: TopBarProps) {
   const healthLabel = error
     ? "Degraded"
     : robot.status === "offline" || robot.status === "error"
@@ -36,6 +37,11 @@ export function TopBar({ role, robot, mode, loading, saving, error, onRefresh }:
         </span>
         <span className="role-pill">{role}</span>
         <button onClick={onRefresh}>Refresh</button>
+        {onSwitchView ? (
+          <button className="button--ghost" onClick={onSwitchView} type="button">
+            Switch view
+          </button>
+        ) : null}
       </div>
       {error ? <p className="top-bar__error">{error}</p> : null}
     </header>
