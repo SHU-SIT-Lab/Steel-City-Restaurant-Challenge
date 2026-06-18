@@ -22,81 +22,116 @@ from helpers import tts
 from helpers.send_audio import process_audio_for_transmission
 
 
-
+CONFIG = {
+    "audio_output_topic": "/audio_output",
+    "publish_queue_size": 10,
+    "test_sentence": "Hello. I am ServerBot. This is a test of the text-to-speech system.",
+}
 
 
 class TextToSpeech(Node):
-    """Node that generates speech from text and publishes audio."""
-
     def __init__(self) -> None:
         super().__init__("text_to_speech")
+
         self.publisher = self.create_publisher(
             AudioData,
-            "/audio_output",
-            10,
+            CONFIG["audio_output_topic"],
+            CONFIG["publish_queue_size"],
         )
 
         self.message_count = 0
+        self.last_message_time: Optional[float] = None
 
-        self.get_logger().info("Text-to-speech node initialized")
+        self.get_logger().info(
+            f"Text-to-speech node initialized. Publishing to {CONFIG['audio_output_topic']}"
+        )
 
-    def generate_and_publish_speech(self, text: str) -> bool:
-        """
-        Generate speech from text and publish to /audio_output.
-
-        Args:
-            text: Text to synthesize and publish.
-
-        Returns:
-            True if successful, False otherwise.
-        """
+    def generate_speech(self, text: str) -> bool:
         self.get_logger().info(f"Generating speech: {text!r}")
-        
-        # Generate audio using TTS
-        audio = tts.speak(text)
-        if audio is None:
-            self.get_logger().error("TTS failed to generate audio")
+
+        try:
+            audio = tts.speak(text)
+        except Exception as exc:
+            self.get_logger().error(f"TTS generation failed: {exc}")
             return False
 
-        # Process for transmission
-        processed = process_audio_for_transmission(audio)
+        if audio is None:
+            self.get_logger().error("TTS returned no audio")
+            return False
 
-        # Convert to int16 and publish
-        int16_audio = (processed.original * 32767).astype(np.int16)
+        try:
+            audio = np.asarray(audio, dtype=np.float32).flatten()
+        except Exception as exc:
+            self.get_logger().error(f"Could not convert TTS audio to numpy array: {exc}")
+            return False
+
+        if audio.size == 0:
+            self.get_logger().error("TTS audio array is empty")
+            return False
+
+        try:
+            processed = process_audio_for_transmission(audio)
+            output_audio = np.asarray(processed.original, dtype=np.float32).flatten()
+        except Exception as exc:
+            self.get_logger().error(f"Audio processing for transmission failed: {exc}")
+            return False
+
+        if output_audio.size == 0:
+            self.get_logger().error("Processed audio array is empty")
+            return False
+
+        output_audio = np.clip(output_audio, -1.0, 1.0)
+        int16_audio = (output_audio * 32767.0).astype(np.int16)
+
         msg = AudioData()
-        msg.data = list(int16_audio.tobytes())
+        payload = int16_audio.tobytes()
+
+        try:
+            msg.data = payload
+        except TypeError:
+            msg.data = list(payload)
+
         self.publisher.publish(msg)
 
         self.message_count += 1
-        self.get_logger().info(f"Published audio message #{self.message_count}")
+        self.last_message_time = time.time()
+
+        self.get_logger().info(
+            f"Published audio message #{self.message_count} "
+            f"({len(int16_audio)} samples)"
+        )
+
         return True
 
+    def generate_and_publish_speech(self, text: str) -> bool:
+        return self.generate_speech(text)
 
+    def destroy_node(self) -> bool:
+        return super().destroy_node()
 
 
 def main(args=None) -> None:
     rclpy.init(args=args)
     node = TextToSpeech()
-    
-    # Test string to generate
-    test_str = "Hello. How are you doing today? This is a test of the text-to-speech system."
 
     try:
-        # Give ROS time to initialize subscriptions
-        time.sleep(1)
-        
-        # Generate and publish test speech
-        success = node.generate_and_publish_speech(test_str)
-        
+        time.sleep(1.0)
+
+        success = node.generate_speech(CONFIG["test_sentence"])
+
         if success:
-            print(f"[TTS] Speech published successfully")
+            print("[TTS] Speech published successfully")
         else:
-            print(f"[TTS] Failed to generate speech")
-        
+            print("[TTS] Failed to generate speech")
+
+        time.sleep(1.0)
+
     except KeyboardInterrupt:
         print("\n[TTS] Interrupted")
+
     finally:
         node.destroy_node()
+
         if rclpy.ok():
             rclpy.shutdown()
 
