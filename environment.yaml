@@ -12,3 +12,13 @@ dependencies:
     - openai-whisper
     - firebase-admin
     - pyyaml
+  - setuptools
+  - wheel
+
+# Notes:
+# - This is a minimal, non-ROS development environment. The previous file
+#   pointed at the user's `base` prefix and used python=3.13 which caused
+#   solver conflicts and prevented environment creation.
+# - If you need ROS (ros-humble) packages, build/run inside the project's
+#   Docker container (see README). ros-humble packages typically require
+#   python 3.9 and special channels (e.g. robostack-humble).

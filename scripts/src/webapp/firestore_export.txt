@@ -1,0 +1,134 @@
+
+collection: entrance
+  doc: fMp1lkwtKkLyRpJIIl71
+    detected_by: robot
+    party_size: 2
+    notes: Standing near door
+    arrived_at: {"_seconds":1781098662,"_nanoseconds":984000000}
+    assigned_table: t_02
+    status: seated
+    seated_at: {"_seconds":1781098663,"_nanoseconds":85000000}
+
+collection: menu
+  doc: apple
+    category: food
+    available: true
+    display_order: 0
+    name: Apple
+
+collection: menu
+  doc: coke
+    category: drink
+    available: true
+    display_order: 0
+    name: Coca-Cola
+
+collection: menu
+  doc: orange_juice
+    category: drink
+    graspable: true
+    name: orange_juice
+
+collection: menu
+  doc: pizza
+    category: meal
+    graspable: true
+    name: Pizza
+    yolo_class: 53
+
+collection: menu
+  doc: water
+    category: drink
+    available: true
+    display_order: 0
+    name: Water bottle
+
+collection: orders
+  doc: 50nAX2X0gky1dOjArYVL
+    status: detected
+    table_id: t_01
+    items: [coke, apple]
+
+collection: orders
+  doc: GxRqKftiKFh664ElhSdl
+    used_tray: true
+    table_id: t_01
+    assigned_robot: ninja
+    notes: 
+    customer_gesture: waving
+    created_at: {"_seconds":1781098551,"_nanoseconds":393000000}
+    confirmed_at: {"_seconds":1781098551,"_nanoseconds":590000000}
+    ready_at: {"_seconds":1781098551,"_nanoseconds":874000000}
+    items: [[object Object], [object Object]]
+    delivered_at: {"_seconds":1781098552,"_nanoseconds":619000000}
+    status: delivered
+
+collection: orders
+  doc: HGYriyXwm9rvVcfgyFLr
+    used_tray: true
+    table_id: t_01
+    assigned_robot: ninja
+    notes: 
+    customer_gesture: waving
+    created_at: {"_seconds":1781098661,"_nanoseconds":556000000}
+    confirmed_at: {"_seconds":1781098661,"_nanoseconds":760000000}
+    ready_at: {"_seconds":1781098662,"_nanoseconds":60000000}
+    items: [[object Object], [object Object]]
+    delivered_at: {"_seconds":1781098662,"_nanoseconds":877000000}
+    status: delivered
+
+collection: orders
+  doc: OHrEk5xJ3xj68sYlopEV
+    used_tray: true
+    table_id: t_01
+    assigned_robot: ninja
+    notes: 
+    customer_gesture: waving
+    created_at: {"_seconds":1781097859,"_nanoseconds":977000000}
+    confirmed_at: {"_seconds":1781097860,"_nanoseconds":174000000}
+    ready_at: {"_seconds":1781097860,"_nanoseconds":482000000}
+    items: [[object Object], [object Object]]
+    delivered_at: {"_seconds":1781097861,"_nanoseconds":528000000}
+    status: delivered
+
+collection: orders
+  doc: WIvpcBWpLWqNN1vfFkti
+    status: detected
+    table_id: t_01
+    items: [coke, apple]
+
+collection: orders
+  doc: ord_04
+    table_id: 3
+
+collection: robots
+  doc: ninja
+    current_location: kitchen_bar
+    error_msg: 
+    model: TurtleBot 4
+    name: Ninja
+    battery_pct: 95
+    last_seen: {"_seconds":1781098662,"_nanoseconds":914000000}
+    current_task: null
+    status: idle
+
+collection: tables
+  doc: t_01
+    pose_y: 1.3
+    pose_theta: 0
+    current_order: null
+    pose_x: 2.5
+    table_number: 1
+    occupied_since: {"_seconds":1781098661,"_nanoseconds":453000000}
+    last_updated: {"_seconds":1781098661,"_nanoseconds":453000000}
+    status: occupied
+
+collection: tables
+  doc: t_02
+    status: empty
+    pose_y: 3.55
+    pose_theta: 1.57
+    current_order: null
+    pose_x: 4.1
+    table_number: 2
+    last_updated: {"_seconds":1781098661,"_nanoseconds":352000000}
