@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   advanceOrder,
   assignParty,
@@ -19,6 +19,11 @@ import {
 } from "../lib/api/client";
 import { mockSnapshot } from "../data/mockFirestore";
 import type { OpsSnapshot } from "../types/firestore";
+
+// Poll the snapshot on an interval that backs off on errors and pauses when the tab
+// is hidden, so idle tablets and failing backends stop hammering the API.
+const BASE_POLL_MS = 8000;
+const MAX_POLL_MS = 60000;
 
 export interface OpsActions {
   refresh: () => Promise<void>;
@@ -59,6 +64,7 @@ export function useOpsData(): OpsDataState {
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const failuresRef = useRef(0);
 
   const refresh = useCallback(async () => {
     try {
@@ -66,9 +72,11 @@ export function useOpsData(): OpsDataState {
       setSnapshot(withDefaults(response));
       setMode(response.mode);
       setError(null);
+      failuresRef.current = 0;
     } catch (requestError) {
       setMode("mock");
       setError(requestError instanceof Error ? requestError.message : "Unable to load Firestore snapshot");
+      failuresRef.current += 1;
     } finally {
       setLoading(false);
     }
@@ -92,10 +100,44 @@ export function useOpsData(): OpsDataState {
   );
 
   useEffect(() => {
-    refresh();
-    const interval = window.setInterval(refresh, 3000);
+    let cancelled = false;
+    let timer: number | undefined;
 
-    return () => window.clearInterval(interval);
+    const schedule = () => {
+      window.clearTimeout(timer);
+      // Don't poll while the tab is hidden (e.g. an idle customer tablet); resume on focus.
+      if (cancelled || document.hidden) {
+        return;
+      }
+      const delay = Math.min(MAX_POLL_MS, BASE_POLL_MS * 2 ** failuresRef.current);
+      timer = window.setTimeout(run, delay);
+    };
+
+    const run = () => {
+      window.clearTimeout(timer);
+      void refresh().finally(() => {
+        if (!cancelled) {
+          schedule();
+        }
+      });
+    };
+
+    const onVisibilityChange = () => {
+      if (document.hidden) {
+        window.clearTimeout(timer);
+      } else {
+        run();
+      }
+    };
+
+    run();
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
+    };
   }, [refresh]);
 
   const actions = useMemo<OpsActions>(

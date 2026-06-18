@@ -115,13 +115,77 @@ function readBody(req) {
   });
 }
 
-async function listCollection(collectionName) {
-  const snapshot = await getDb().collection(collectionName).get();
+const SNAPSHOT_COLLECTIONS = ["entrance", "menu", "orders", "robots", "tables", "commands", "tasks", "events"];
 
-  return snapshot.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  }));
+// Server-side cache fed by Firestore realtime listeners. The web app polls
+// /api/snapshot frequently; serving it from this in-memory cache means Firestore is
+// billed only for the initial read plus actual document changes — instead of a full
+// read of all eight collections on every poll, which exhausted the free-tier quota.
+const snapshotCache = Object.fromEntries(SNAPSHOT_COLLECTIONS.map((name) => [name, []]));
+
+const listeners = {
+  started: false,
+  unsubscribe: [],
+  pending: new Set(),
+  ready: null,
+  resolveReady: null,
+  error: null,
+};
+
+function startSnapshotListeners() {
+  if (listeners.started) {
+    return;
+  }
+
+  const database = getDb(); // throws on bad credentials -> caller returns 500
+
+  listeners.started = true;
+  listeners.error = null;
+  listeners.pending = new Set(SNAPSHOT_COLLECTIONS);
+  listeners.ready = new Promise((resolve) => {
+    listeners.resolveReady = resolve;
+  });
+
+  for (const name of SNAPSHOT_COLLECTIONS) {
+    const unsubscribe = database.collection(name).onSnapshot(
+      (snapshot) => {
+        snapshotCache[name] = snapshot.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+        listeners.pending.delete(name);
+
+        if (listeners.pending.size === 0 && listeners.resolveReady) {
+          listeners.resolveReady();
+          listeners.resolveReady = null;
+        }
+      },
+      (error) => {
+        // A listener failed (e.g. quota/credentials). Record it, unblock any waiter,
+        // and tear everything down so the next request re-subscribes from scratch.
+        listeners.error = error;
+
+        if (listeners.resolveReady) {
+          listeners.resolveReady();
+          listeners.resolveReady = null;
+        }
+
+        stopSnapshotListeners();
+      },
+    );
+
+    listeners.unsubscribe.push(unsubscribe);
+  }
+}
+
+function stopSnapshotListeners() {
+  for (const unsubscribe of listeners.unsubscribe) {
+    try {
+      unsubscribe();
+    } catch {
+      // ignore unsubscribe errors
+    }
+  }
+
+  listeners.unsubscribe = [];
+  listeners.started = false;
 }
 
 async function writeEvent({ type, severity = "info", message, entity_type, entity_id = null, created_by = "webapp", metadata = {} }) {
@@ -168,28 +232,37 @@ function fail(message, statusCode = 400) {
 }
 
 async function handleSnapshot(_req, res) {
-  const [entrance, menu, orders, robots, tables, commands, tasks, events] = await Promise.all([
-    listCollection("entrance"),
-    listCollection("menu"),
-    listCollection("orders"),
-    listCollection("robots"),
-    listCollection("tables"),
-    listCollection("commands"),
-    listCollection("tasks"),
-    listCollection("events"),
-  ]);
+  try {
+    startSnapshotListeners();
+  } catch (error) {
+    // Credential/init failure: behave like before so the client falls back to mock.
+    sendJson(res, 500, { error: error.message || "Firestore is not available" });
+    return;
+  }
+
+  // Cold start only: wait briefly for the initial snapshots to populate the cache.
+  if (listeners.pending.size > 0 && listeners.ready) {
+    await Promise.race([listeners.ready, new Promise((resolve) => setTimeout(resolve, 8000))]);
+  }
+
+  if (listeners.error) {
+    const message = listeners.error.message || "Firestore listener error";
+    listeners.error = null; // let the next request retry from scratch
+    sendJson(res, 500, { error: message });
+    return;
+  }
 
   sendJson(res, 200, {
     mode: "live",
     role: process.env.WEBAPP_DEFAULT_ROLE || "manager",
-    entrance,
-    menu,
-    orders,
-    robots,
-    tables,
-    commands,
-    tasks,
-    events,
+    entrance: snapshotCache.entrance,
+    menu: snapshotCache.menu,
+    orders: snapshotCache.orders,
+    robots: snapshotCache.robots,
+    tables: snapshotCache.tables,
+    commands: snapshotCache.commands,
+    tasks: snapshotCache.tasks,
+    events: snapshotCache.events,
   });
 }
 
