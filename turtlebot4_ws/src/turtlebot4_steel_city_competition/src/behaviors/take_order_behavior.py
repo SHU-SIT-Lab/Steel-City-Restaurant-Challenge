@@ -5,7 +5,11 @@ import time
 from typing import Any, Optional
 
 from behaviors.behaviors import DeliberativeBehavior
-from behaviors.database_bridge import RestaurantDatabase, shared_state
+try:
+    from behaviors.database_bridge import RestaurantDatabase
+except Exception as exc:
+    print(f"[TAKE_ORDER] database bridge unavailable ({exc}). DB disabled.")
+    RestaurantDatabase = None
 
 try:
     from llm.order_taker import OrderTaker
@@ -24,6 +28,7 @@ class TakeOrderBehavior(DeliberativeBehavior):
         self.max_dialogue_turns = 8    # safety cap on back-and-forth per order
         self.ask_timeout = 8.0         # seconds to wait for a spoken reply
         self.max_no_reply = 3          # give up after this many silent turns
+        self._db = None                # RestaurantDatabase, created lazily
         self._order_taker: Optional[OrderTaker] = None  
 
     # ------------------------------------------------------------------ #
@@ -59,7 +64,8 @@ class TakeOrderBehavior(DeliberativeBehavior):
         if elapsed_time < self.wait_time:
             self.priority = 0.0
         else:
-            # TODO (Database): 1.0 if a table has customers who haven't ordered.
+            # Priority is high when the database reports a table waiting to order.
+            # NOTE: this hits the DB each tick; cache if it becomes a bottleneck.
             has_table = self._get_table_awaiting_order() is not None
             self.priority = 1.0 * self.order if has_table else 0.0
         return self.priority
@@ -161,13 +167,40 @@ class TakeOrderBehavior(DeliberativeBehavior):
         return True
 
     # ------------------------------------------------------------------ #
-    #  Database (STUB — Database team)
+    #  Database (wired to RestaurantDatabase / Firestore, with fallback)
     # ------------------------------------------------------------------ #
+    def _get_db(self):
+        """Create the database client on first use. Returns None if unavailable
+        (e.g. no internet / no credentials) so the robot degrades gracefully."""
+        if self._db is None and RestaurantDatabase is not None:
+            try:
+                self._db = RestaurantDatabase()
+            except Exception as exc:
+                print(f"[TAKE_ORDER] database unavailable ({exc}).")
+                return None
+        return self._db
+
     def _get_table_awaiting_order(self) -> Optional[int]:
-        # TODO (Database): return a table id with customers who haven't ordered, else None.
-        return 1
+        """A table that is occupied but hasn't ordered yet, or None."""
+        db = self._get_db()
+        if db is None:
+            return None
+        try:
+            return db.find_table_needing_order()
+        except Exception as exc:
+            print(f"[TAKE_ORDER] DB query failed ({exc}).")
+            return None
 
     def _save_order_to_db(self, table_id: int, items: list, notes: str) -> bool:
-        # TODO (Database): assign these items to this table and mark it as ordered.
-        print(f"[TAKE_ORDER] (stub) save order for table {table_id}: {items} notes={notes!r}")
-        return True
+        """Save the order against this table (also marks it as has_ordered)."""
+        db = self._get_db()
+        if db is None:
+            print(f"[TAKE_ORDER] DB unavailable; order NOT saved: table {table_id} {items}")
+            return False
+        try:
+            db.save_order(table_id, items, notes)
+            print(f"[TAKE_ORDER] saved order for table {table_id}: {items}")
+            return True
+        except Exception as exc:
+            print(f"[TAKE_ORDER] DB save failed ({exc}).")
+            return False
