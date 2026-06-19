@@ -1,0 +1,8 @@
+.git/
+**/__pycache__/
+**/*.pyc
+turtlebot4_ws/build/
+turtlebot4_ws/install/
+turtlebot4_ws/log/
+node_modules/
+scripts/src/webapp/node_modules/

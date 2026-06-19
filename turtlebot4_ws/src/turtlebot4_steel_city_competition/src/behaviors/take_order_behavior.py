@@ -1,11 +1,17 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
+import os
 import time
 from typing import Any, Optional
 
 from behaviors.behaviors import DeliberativeBehavior
-from behaviors.database_bridge import RestaurantDatabase, shared_state
+
+try:
+    from behaviors.database_bridge import RestaurantDatabase
+except Exception as exc:
+    print(f"[TAKE_ORDER] database bridge unavailable ({exc}). DB disabled.")
+    RestaurantDatabase = None
 
 try:
     from llm.order_taker import OrderTaker
@@ -15,8 +21,6 @@ except Exception as exc:
 
 
 class TakeOrderBehavior(DeliberativeBehavior):
-    """Go to a waiting table, take the order, and record it."""
-
     def __init__(self) -> None:
         super().__init__(name="take_order")
         self.wait_time = 5.0            # cooldown before this behavior re-runs
@@ -24,59 +28,100 @@ class TakeOrderBehavior(DeliberativeBehavior):
         self.max_dialogue_turns = 8    # safety cap on back-and-forth per order
         self.ask_timeout = 8.0         # seconds to wait for a spoken reply
         self.max_no_reply = 3          # give up after this many silent turns
-        self._order_taker: Optional[OrderTaker] = None  
-        self.db = RestaurantDatabase()
-        
+        self._order_taker: Optional[OrderTaker] = None
+        self._database: Any = None
+        # NOTE: self.speech_to_text and self.text_to_speech are wired by the base
+        # class to the shared action nodes. Do NOT reset them to None here, or the
+        # robot loses its voice/ears. Only navigation is added by this behavior.
+        self.navigation: Any = None
 
-    # ------------------------------------------------------------------ #
-    #  Main plan
-    # ------------------------------------------------------------------ #
     def plan(self, ctx: Any) -> None:
-        # Wrap the whole sequence so a broken step never freezes the robot.
+        self._bind_context_interfaces(ctx)
+
         try:
-            # 1. Database: which table needs an order?
             table_id = self._get_table_awaiting_order()
+
             if table_id is None:
+                print("[TAKE_ORDER] no table awaiting order.")
+                return
+
+            location_id = f"table_{table_id}"
+
+            if not self._navigate_to(location_id):
+                print(f"[TAKE_ORDER] could not navigate to {location_id!r}.")
                 return
             shared_state(ctx)["current_table_id"] = table_id
 
-            # 2. Navigation (placeholder): go to the table.
-            if not self._navigate_to(f"table_{table_id}"):
-                return  # couldn't get there — move on, run again later
-
-            # 3 & 4. LLM: greet, ask, and take the order.
             result = self._take_order()
+
             if result is None:
                 self._say("No problem, I'll come back in a little while.")
                 return
 
-            # 5. Database: persist the order, assigned to this table.
-            self._save_order_to_db(table_id, result.get("items", []), result.get("notes", ""))
+            saved = self._save_order_to_db(
+                table_id=table_id,
+                items=result.get("items", []),
+                notes=result.get("notes", ""),
+            )
+
+            if saved:
+                self._say("Thank you. I have sent your order to the kitchen.")
+            else:
+                self._say("I have taken your order, but I could not save it just now.")
 
         except Exception as exc:
-            # Never let one bad turn hang the behavior; log and move on.
             print(f"[TAKE_ORDER] step failed ({exc}); abandoning this attempt.")
 
     def compute_priority(self) -> float:
         elapsed_time = time.monotonic() - self.last_run_time
+
         if elapsed_time < self.wait_time:
             self.priority = 0.0
-        else:
-            # TODO (Database): 1.0 if a table has customers who haven't ordered.
-            has_table = self._get_table_awaiting_order() is not None
-            self.priority = 1.0 * self.order if has_table else 0.0
+            return self.priority
+
+        table_id = self._get_table_awaiting_order()
+        self.priority = float(self.order) if table_id is not None else 0.0
+
         return self.priority
 
-    # ------------------------------------------------------------------ #
-    #  Step 3 & 4 — the order-taking conversation
-    # ------------------------------------------------------------------ #
-    def _take_order(self) -> Optional[dict]:
-        """Run the order dialogue via the LLM. Returns {"items", "notes"} or None.
+    def _bind_context_interfaces(self, ctx: Any) -> None:
+        if ctx is None:
+            return
 
-        each `_ask` has a timeout. Too many silent
-        replies (customer left / mic dead) ends the attempt instead of looping.
-        """
+        for name in ("speech_to_text", "stt", "speech"):
+            value = getattr(ctx, name, None)
+            if value is not None:
+                self.speech_to_text = value
+                break
+
+        for name in ("text_to_speech", "tts"):
+            value = getattr(ctx, name, None)
+            if value is not None:
+                self.text_to_speech = value
+                break
+
+        if isinstance(ctx, dict):
+            for name in ("navigation", "navigator", "nav"):
+                value = ctx.get(name)
+                if value is not None:
+                    self.navigation = value
+                    break
+        else:
+            for name in ("navigation", "navigator", "nav"):
+                value = getattr(ctx, name, None)
+                if value is not None:
+                    self.navigation = value
+                    break
+
+        for name in ("database", "db", "restaurant_database"):
+            value = getattr(ctx, name, None)
+            if value is not None:
+                self._database = value
+                break
+
+    def _take_order(self) -> Optional[dict]:
         taker = self._get_order_taker()
+
         if taker is None:
             return None
 
@@ -84,65 +129,74 @@ class TakeOrderBehavior(DeliberativeBehavior):
         self._say("Hello! I'm ServerBot. What would you like to order?")
 
         no_reply = 0
+
         for _ in range(self.max_dialogue_turns):
             answer = self._ask(timeout=self.ask_timeout)
 
             if not answer:
                 no_reply += 1
+
                 if no_reply >= self.max_no_reply:
                     print("[TAKE_ORDER] no reply after several tries; giving up for now.")
                     return None
+
                 self._say("Sorry, I didn't catch that. Could you repeat, please?")
                 continue
 
-            no_reply = 0  # got speech — reset the silence counter
+            no_reply = 0
+
             reply, recorded_order = taker.chat(answer)
             self._say(reply)
 
             if recorded_order is not None:
-                return recorded_order  # {"items": [...], "notes": "..."}
+                return recorded_order
 
-        # Ran out of turns without a confirmed order.
         return None
 
     def _get_order_taker(self) -> Optional[OrderTaker]:
-        """Create the OrderTaker on first use (needs OPENAI_API_KEY)."""
         if self._order_taker is None and OrderTaker is not None:
             try:
                 self._order_taker = OrderTaker()
             except Exception as exc:
                 print(f"[TAKE_ORDER] LLM unavailable ({exc}).")
                 return None
+
         return self._order_taker
 
-    # ------------------------------------------------------------------ #
-    #  Speech I/O — thin clients onto the speech action nodes
-    # ------------------------------------------------------------------ #
     def _say(self, text: str) -> None:
-        """Speak text through the text_to_speech action node."""
         print(f"[TAKE_ORDER] say: {text!r}")
-        try:
-            self.text_to_speech.generate_speech(text)
-        except Exception as exc:
-            print(f"[TAKE_ORDER] TTS unavailable ({exc}); printed only.")
+
+        speaker = self.text_to_speech
+
+        if speaker is None:
+            print("[TAKE_ORDER] text_to_speech interface not wired; printed only.")
+            return
+
+        for method_name in ("generate_speech", "generate_and_publish_speech", "speak"):
+            method = getattr(speaker, method_name, None)
+
+            if callable(method):
+                try:
+                    method(text)
+                    return
+                except Exception as exc:
+                    print(f"[TAKE_ORDER] TTS method {method_name} failed ({exc}).")
+                    return
+
+        print("[TAKE_ORDER] no compatible TTS method found; printed only.")
 
     def _ask(self, prompt: Optional[str] = None, timeout: float = 8.0) -> Optional[str]:
-        """Ask a question and get the customer's transcribed reply, or None.
-
-        Request-with-TIMEOUT. On the robot this should be
-        a ROS *service* call to the speech_to_text node: speak the prompt, then
-        ask for the next finished transcript, waiting at most `timeout` seconds.
-        ROS handles the waiting via its executor — we do not spawn threads.
-
-        Expected service-backed method on the node, e.g.:
-            return self.speech_to_text.get_next_utterance(timeout)
-
-        Returns None on timeout/no speech so the caller can move on.
-        """
         if prompt:
             self._say(prompt)
 
-        getter = getattr(self.speech_to_text, "get_next_utterance", None)
+        listener = self.speech_to_text
+
+        if listener is None:
+            print("[TAKE_ORDER] speech_to_text interface not wired.")
+            return None
+
+        getter = getattr(listener, "get_next_utterance", None)
+
         if callable(getter):
             try:
                 return getter(timeout)
@@ -150,20 +204,19 @@ class TakeOrderBehavior(DeliberativeBehavior):
                 print(f"[TAKE_ORDER] speech request failed ({exc}).")
                 return None
 
-        print("[TAKE_ORDER] (speech service not wired yet) no transcript.")
+        print("[TAKE_ORDER] speech_to_text has no get_next_utterance(timeout).")
         return None
 
-    # ------------------------------------------------------------------ #
-    #  Navigation (PLACEHOLDER — Navigation team)
-    # ------------------------------------------------------------------ #
     def _navigate_to(self, location_id: str) -> bool:
-        # TODO (Navigation): replace with the real call, e.g. navigate_to(location_id).
-        # Confirmed in meeting: pass a name ("table_3" / "kitchen" / "entrance");
-        # for now it returns success immediately (no movement).
-        print(f"[TAKE_ORDER] (placeholder) navigate to {location_id!r} ... success")
-        return True
+        navigator = self.navigation
 
+        if navigator is None:
+            print(f"[TAKE_ORDER] navigation not wired; pretending navigation to {location_id!r} succeeded.")
+            return True
 
+    # ------------------------------------------------------------------ #
+    #  Database (STUB — Database team)
+    # ------------------------------------------------------------------ #
     def _get_table_awaiting_order(self) -> Optional[int]:
         """Return first occupied table with no order yet, or None."""
         try:

@@ -30,6 +30,10 @@ install(PROGRAMS
   src/subscribers/speaker_subscriber.py
   DESTINATION lib/${PROJECT_NAME})
 
+install(DIRECTORY src/navigation
+  DESTINATION lib/${PROJECT_NAME}
+  FILES_MATCHING PATTERN "*.py")
+
 install(DIRECTORY launch
   DESTINATION share/${PROJECT_NAME})
 

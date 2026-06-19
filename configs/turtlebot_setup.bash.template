@@ -1,0 +1,6 @@
+source /opt/ros/jazzy/setup.bash
+
+export ROS_DOMAIN_ID=__ROS_DOMAIN_ID__
+export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
+export ROS_SUPER_CLIENT=True
+export ROS_DISCOVERY_SERVER="__ROBOT_IP__:11811;"
