@@ -6,24 +6,12 @@ import time
 from typing import Any, Optional
 
 from behaviors.behaviors import DeliberativeBehavior
+
 try:
     from behaviors.database_bridge import RestaurantDatabase
 except Exception as exc:
     print(f"[TAKE_ORDER] database bridge unavailable ({exc}). DB disabled.")
     RestaurantDatabase = None
-
-try:
-    from llm.order_taker import OrderTaker
-except Exception as exc:
-    print(f"[TAKE_ORDER] OrderTaker unavailable ({exc}). Conversation disabled.")
-    OrderTaker = None
-
-try:
-    from behaviors.database_bridge import RestaurantDatabase, shared_state
-except Exception as exc:
-    print(f"[TAKE_ORDER] database bridge unavailable ({exc}).")
-    RestaurantDatabase = None
-    shared_state = None
 
 try:
     from llm.order_taker import OrderTaker
@@ -41,8 +29,11 @@ class TakeOrderBehavior(DeliberativeBehavior):
         self.ask_timeout = 8.0         # seconds to wait for a spoken reply
         self.max_no_reply = 3          # give up after this many silent turns
         self._order_taker: Optional[OrderTaker] = None
-        self.db = RestaurantDatabase()
-
+        self._database: Any = None
+        # NOTE: self.speech_to_text and self.text_to_speech are wired by the base
+        # class to the shared action nodes. Do NOT reset them to None here, or the
+        # robot loses its voice/ears. Only navigation is added by this behavior.
+        self.navigation: Any = None
 
     def plan(self, ctx: Any) -> None:
         self._bind_context_interfaces(ctx)
