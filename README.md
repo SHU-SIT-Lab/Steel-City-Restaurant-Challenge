@@ -190,6 +190,7 @@ Update `configs/waypoints.yaml` with poses recorded in your restaurant map.
 | Database     | [docs/database.md](docs/database.md)         |
 | Interfaces   | [docs/interfaces.md](docs/interfaces.md)     |
 | Navigation   | [docs/navigation.md](docs/navigation.md)     |
+| Nav setup (local) | `docs/navigation_waypoints_guide.md` (gitignored) |
 | Speech       | [docs/speech.md](docs/speech.md)             |
 | Task Manager | [docs/task_manager.md](docs/task_manager.md) |
 | Vision       | [docs/vision.md](docs/vision.md)             |

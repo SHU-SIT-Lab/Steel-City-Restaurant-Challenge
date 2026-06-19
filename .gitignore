@@ -310,6 +310,10 @@ scripts/speech/__pycache__/
 scripts/speech/pretrained_models/
 scripts/speech/orders.json
 
+# Navigation helper outputs (local only)
+docs/navigation_waypoints_guide.md
+robot-images/
+
 # Firebase service-account keys — never commit these (both Admin SDK keys match)
 **/*firebase-adminsdk*.json
 

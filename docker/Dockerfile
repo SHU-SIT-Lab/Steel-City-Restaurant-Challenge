@@ -37,6 +37,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     espeak \
     portaudio19-dev \
     libasound2-dev \
+    python3-tk \
+    python3-pil \
     && rm -rf /var/lib/apt/lists/*
 
 RUN rosdep init 2>/dev/null || true && rosdep update

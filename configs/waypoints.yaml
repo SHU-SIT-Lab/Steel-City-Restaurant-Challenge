@@ -35,3 +35,8 @@ table_5:
   x: 2.0
   y: 5.0
   yaw: 3.14
+
+docking_station:
+  x: 0.0
+  y: 0.0
+  yaw: 0.0

@@ -8,10 +8,13 @@ from typing import Dict, Optional
 
 import yaml
 from geometry_msgs.msg import PoseStamped
-from nav2_simple_commander.robot_navigator import BasicNavigator, TaskResult
+from nav2_simple_commander.robot_navigator import TaskResult
+from turtlebot4_navigation.turtlebot4_navigator import TurtleBot4Navigator
+
+DOCKING_STATION_ID = "docking_station"
 
 
-def _default_waypoints_path() -> Path:
+def default_waypoints_path() -> Path:
     repo_root = Path(__file__).resolve().parents[5]
     return repo_root / "configs" / "waypoints.yaml"
 
@@ -20,8 +23,8 @@ def _yaw_to_quaternion(yaw: float) -> tuple[float, float, float, float]:
     return 0.0, 0.0, math.sin(yaw / 2.0), math.cos(yaw / 2.0)
 
 
-class RestaurantNavigator(BasicNavigator):
-    """Nav2 wrapper used by competition behaviors."""
+class RestaurantNavigator(TurtleBot4Navigator):
+    """Nav2 + TurtleBot4 docking wrapper used by the navigation server."""
 
     def __init__(self, waypoints_file: Optional[str] = None) -> None:
         super().__init__()
@@ -29,7 +32,7 @@ class RestaurantNavigator(BasicNavigator):
         self.waitUntilNav2Active()
 
     def _load_waypoints(self, waypoints_file: Optional[str]) -> Dict[str, Dict[str, float]]:
-        path = Path(waypoints_file) if waypoints_file else _default_waypoints_path()
+        path = Path(waypoints_file) if waypoints_file else default_waypoints_path()
         if not path.is_file():
             self.get_logger().warn(f"Waypoints file not found: {path}")
             return {}
@@ -41,6 +44,12 @@ class RestaurantNavigator(BasicNavigator):
             raise ValueError(f"Invalid waypoints file: {path}")
 
         return data
+
+    def reload_waypoints(self, waypoints_file: Optional[str] = None) -> None:
+        self._waypoints = self._load_waypoints(waypoints_file)
+
+    def list_waypoints(self) -> list[str]:
+        return sorted(self._waypoints.keys())
 
     def _make_pose(self, location_id: str) -> PoseStamped:
         if location_id not in self._waypoints:
@@ -59,20 +68,42 @@ class RestaurantNavigator(BasicNavigator):
         pose.pose.orientation.w = qw
         return pose
 
-    def navigate_to(self, location_id: str, timeout_sec: float = 300.0) -> bool:
-        if location_id not in self._waypoints:
-            self.get_logger().error(f"Unknown location_id: {location_id!r}")
-            return False
-
-        goal = self._make_pose(location_id)
-        self.goToPose(goal)
+    def _wait_for_navigation(self, timeout_sec: float) -> bool:
         start = self.get_clock().now()
         while not self.isTaskComplete():
             if (self.get_clock().now() - start).nanoseconds / 1e9 > timeout_sec:
                 self.cancelTask()
+                self.get_logger().error("Navigation timed out.")
                 return False
-
         return self.getResult() == TaskResult.SUCCEEDED
+
+    def _navigate_to_pose(self, location_id: str, timeout_sec: float) -> bool:
+        goal = self._make_pose(location_id)
+        self.goToPose(goal)
+        return self._wait_for_navigation(timeout_sec)
+
+    def navigate_to(
+        self,
+        location_id: str,
+        timeout_sec: float = 300.0,
+        dock_after: bool = False,
+    ) -> bool:
+        if location_id not in self._waypoints:
+            self.get_logger().error(f"Unknown location_id: {location_id!r}")
+            return False
+
+        should_dock = dock_after or location_id == DOCKING_STATION_ID
+
+        if should_dock:
+            if not self._navigate_to_pose(location_id, timeout_sec):
+                return False
+            self.dock()
+            return self.getDockedStatus()
+
+        if self.getDockedStatus():
+            self.undock()
+
+        return self._navigate_to_pose(location_id, timeout_sec)
 
     def go_to(self, location_id: str) -> bool:
         return self.navigate_to(location_id)
