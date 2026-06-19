@@ -299,6 +299,7 @@ orders.json
 scripts/speech/orders.json
 scripts/speech/pretrained_models/
 scripts/speech/__pycache__/
+scripts/database/__pycache__/
 !/scripts/
 !/scripts/**
 scripts/speech/__pycache__/

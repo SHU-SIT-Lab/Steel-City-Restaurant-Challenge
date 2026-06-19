@@ -25,6 +25,8 @@ class TakeOrderBehavior(DeliberativeBehavior):
         self.ask_timeout = 8.0         # seconds to wait for a spoken reply
         self.max_no_reply = 3          # give up after this many silent turns
         self._order_taker: Optional[OrderTaker] = None  
+        self.db = RestaurantDatabase()
+        
 
     # ------------------------------------------------------------------ #
     #  Main plan
@@ -36,6 +38,7 @@ class TakeOrderBehavior(DeliberativeBehavior):
             table_id = self._get_table_awaiting_order()
             if table_id is None:
                 return
+            shared_state(ctx)["current_table_id"] = table_id
 
             # 2. Navigation (placeholder): go to the table.
             if not self._navigate_to(f"table_{table_id}"):
@@ -160,14 +163,34 @@ class TakeOrderBehavior(DeliberativeBehavior):
         print(f"[TAKE_ORDER] (placeholder) navigate to {location_id!r} ... success")
         return True
 
-    # ------------------------------------------------------------------ #
-    #  Database (STUB — Database team)
-    # ------------------------------------------------------------------ #
+
     def _get_table_awaiting_order(self) -> Optional[int]:
-        # TODO (Database): return a table id with customers who haven't ordered, else None.
-        return 1
+        """Return first occupied table with no order yet, or None."""
+        try:
+            table_id = self.db.find_table_needing_order()
+            if table_id is None:
+                print("[TAKE_ORDER] DB: no table needs an order right now.")
+            else:
+                print(f"[TAKE_ORDER] DB: table {table_id} needs an order.")
+            return table_id
+        except Exception as exc:
+            print(f"[TAKE_ORDER] DB read failed ({exc}).")
+            return None
 
     def _save_order_to_db(self, table_id: int, items: list, notes: str) -> bool:
-        # TODO (Database): assign these items to this table and mark it as ordered.
-        print(f"[TAKE_ORDER] (stub) save order for table {table_id}: {items} notes={notes!r}")
-        return True
+        """Save confirmed order to Firestore for this table."""
+        try:
+            clean_items = [str(item).strip() for item in items if str(item).strip()]
+            clean_notes = str(notes or "").strip()
+            if not clean_items:
+                print(f"[TAKE_ORDER] DB: empty order for table {table_id}; not saving.")
+                return False
+            self.db.save_order(table_id, items=clean_items, notes=clean_notes)
+            print(
+                f"[TAKE_ORDER] DB saved for table {table_id}: "
+                f"items={clean_items} notes={clean_notes!r}"
+            )
+            return True
+        except Exception as exc:
+            print(f"[TAKE_ORDER] DB save failed for table {table_id} ({exc}).")
+            return False
