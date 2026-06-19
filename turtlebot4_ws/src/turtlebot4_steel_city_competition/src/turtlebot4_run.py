@@ -27,7 +27,7 @@ from behaviors.check_empty_table_behavior import CheckEmptyTableBehavior
 from behaviors.collect_order_behavior import CollectOrderBehavior
 from behaviors.introduce_table_behavior import IntroduceTableBehavior
 from behaviors.mark_order_ready_behavior import MarkOrderReadyBehavior
-3from behaviors.take_order_behavior import TakeOrderBehavior
+from behaviors.take_order_behavior import TakeOrderBehavior
 from behaviors.update_customer_number_behavior import CheckCustomerNumberBehavior
 
 
@@ -45,7 +45,11 @@ class ReactiveCoordinator(Node):
 			"table_empty": None,
 			"last_speech_text": None,
 		}
-		self.ctx: Dict[str, object] = {"shared_state": self.shared_state}
+		vision = _get_shared_object_detection()
+		self.ctx: Dict[str, object] = {
+			"shared_state": self.shared_state,
+			"object_detection": vision,
+		}
 
 		# Register behaviors and pick the first one to run at startup.
 		self._register_default_behaviors()

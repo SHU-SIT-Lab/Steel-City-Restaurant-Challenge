@@ -41,10 +41,18 @@ class CollectOrderBehavior(DeliberativeBehavior):
 		# TODO: LLM — confirm with barista and customer.
 
 		state = shared_state(ctx)
+		table_location = table_id_to_location(table_id)
+		if state.get("target_location") != table_location:
+			return
+
 		delivered = state.get("order_delivered", state.get("customer_collected_order"))
 		if get_bool(delivered, default=False):
-			self.db.mark_order_delivered(table_id)
-			state.pop("next_target_location", None)
+			try:
+				self.db.mark_order_delivered(table_id)
+				state.pop("next_target_location", None)
+				state.pop("delivery_table_id", None)
+			except Exception as exc:
+				print(f"[COLLECT_ORDER] Firestore write failed ({exc}).")
 
 	def compute_priority(self) -> float:
 		self.order_ready = 1 if self.db.has_ready_order() else 0

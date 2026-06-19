@@ -34,8 +34,13 @@ def set_navigation_target(
 	"""Publish navigation targets for the navigation team via shared_state."""
 	state = shared_state(ctx)
 	state["target_location"] = location_id
-	if table_id is not None:
+	# current_table_id is for vision at a table — not while at entrance or barista.
+	if table_id is not None and location_id not in (ENTRANCE_LOCATION, BARISTA_LOCATION):
 		state["current_table_id"] = table_id
+	elif location_id in (ENTRANCE_LOCATION, BARISTA_LOCATION):
+		state.pop("current_table_id", None)
+		if table_id is not None:
+			state["delivery_table_id"] = table_id
 	if next_location is not None:
 		state["next_target_location"] = next_location
 	else:

@@ -47,6 +47,12 @@ class ObjectDetection(Node):
 		self.free_table = None
 		self.objects_detected = None
 
+		# Fields database behaviors read (see check_customer_behavior.py )
+		self.customer_present = False
+		self.customers_waiting = 0
+		self.table_empty = None  # bool for current view, or dict {table_id: bool}
+		self.current_table_id = None  # set by nav/behaviors when robot is at a table
+
 	def _camera_callback(self, msg: Image) -> None:
 		raw_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
 		
@@ -61,6 +67,30 @@ class ObjectDetection(Node):
 			self.free_table,
 			self.objects_detected
 		) = process_frame(raw_frame)
+
+		people = self.people_detected or 0
+		occupied = self.occupied_table or 0
+		free = self.free_table or 0
+		# Entrance: any person in frame
+		self.customer_present = people > 0
+		self.customers_waiting = people
+
+		# Table: empty if YOLO sees a free table and no occupied table
+		# (robot should be facing ONE table when this is used)
+		if self.table_detected and self.table_detected > 0:
+			if occupied > 0:
+				is_empty = False
+			else:
+				is_empty = free > 0
+			if self.current_table_id is not None:
+				self.table_empty = {self.current_table_id: is_empty}
+			else:
+				self.table_empty = is_empty
+		else:
+			self.table_empty = None
+
+		
+		print(f"[VISION] people={people} customer_present={self.customer_present} table_empty={self.table_empty}")
 
 		if self.debug and self.turtlebot_img is not None:
 			cv2.imshow(OBJ_DETECTION_CONFIG["debug_window_name"], self.processed_img)
