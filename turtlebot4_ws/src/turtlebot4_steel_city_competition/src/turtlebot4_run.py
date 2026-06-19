@@ -27,6 +27,7 @@ from behaviors.update_customer_number_behavior import CheckCustomerNumberBehavio
 from actions.obj_detection import ObjectDetection
 from actions.speech_to_text import SpeechToText
 from actions.text_to_speech import TextToSpeech
+from navigation.restaurant_navigator import RestaurantNavigator
 
 
 class ReactiveCoordinator(Node):
@@ -124,10 +125,22 @@ class ReactiveCoordinator(Node):
 
 def build_nodes() -> List[Node]:
 	coordinator = ReactiveCoordinator()
-	nodes: List[Node] = [coordinator]
-	nodes.append(ObjectDetection())
-	nodes.append(SpeechToText())
-	nodes.append(TextToSpeech())
+	object_detection = ObjectDetection()
+	speech_to_text = SpeechToText()
+	text_to_speech = TextToSpeech()
+
+	coordinator.ctx["object_detection"] = object_detection
+	coordinator.ctx["speech_to_text"] = speech_to_text
+	coordinator.ctx["text_to_speech"] = text_to_speech
+
+	nodes: List[Node] = [coordinator, object_detection, speech_to_text, text_to_speech]
+
+	try:
+		navigator = RestaurantNavigator()
+		coordinator.ctx["navigation"] = navigator
+		nodes.append(navigator)
+	except Exception as exc:
+		coordinator.get_logger().warn(f"Navigation unavailable ({exc}). Behaviors will stub navigation.")
 
 	return nodes
 

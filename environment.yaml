@@ -1,10 +1,8 @@
 name: steel-city-restaurant
 channels:
   - conda-forge
-  - robostack-humble
 dependencies:
-  - python=3.10
-  - ros-humble-ros-base
+  - python=3.12
   - opencv
   - ffmpeg
   - pip
@@ -12,13 +10,12 @@ dependencies:
     - openai-whisper
     - firebase-admin
     - pyyaml
+    - openai
+    - pyttsx3
+    - scipy
   - setuptools
   - wheel
 
-# Notes:
-# - This is a minimal, non-ROS development environment. The previous file
-#   pointed at the user's `base` prefix and used python=3.13 which caused
-#   solver conflicts and prevented environment creation.
-# - If you need ROS (ros-humble) packages, build/run inside the project's
-#   Docker container (see README). ros-humble packages typically require
-#   python 3.9 and special channels (e.g. robostack-humble).
+# Non-ROS Python environment for scripts/ development.
+# ROS 2 Jazzy + TurtleBot4 packages are installed via apt inside Docker
+# (see docker/Dockerfile) or on Ubuntu 24.04 hosts.

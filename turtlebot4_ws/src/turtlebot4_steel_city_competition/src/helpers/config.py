@@ -22,7 +22,7 @@ HF_DENOISE_SAVEDIR = "pretrained_models/metricgan-plus-voicebank"
 WHISPER_MODEL = "small"
 WHISPER_LANGUAGE = "en"
 
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "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")
+OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
 OPENAI_MODEL = "gpt-4o-mini"   
 MAX_TOKENS = 300  
 
