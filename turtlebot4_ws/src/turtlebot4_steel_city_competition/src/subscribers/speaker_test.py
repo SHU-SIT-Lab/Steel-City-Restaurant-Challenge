@@ -10,7 +10,7 @@ import scipy.io.wavfile as wavfile
 
 # Configuration
 SPEAKER_CONFIG = {
-    "device_id": 10,  # Change this to your desired device ID
+    "device_id": 4,  # Change this to your desired device ID
     "wav_file": Path(__file__).parent / "test" / "test.wav",
 }
 

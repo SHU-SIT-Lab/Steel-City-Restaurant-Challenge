@@ -94,6 +94,7 @@ class TextToSpeech(Node):
         self.get_logger().info(
             f"Text-to-speech node initialized. Publishing to {CONFIG['audio_output_topic']}"
         )
+        time.sleep(0.5)
 
     def generate_speech(self, text: str) -> bool:
         self.get_logger().info(f"Generating speech: {text!r}")
@@ -140,6 +141,7 @@ class TextToSpeech(Node):
         except TypeError:
             msg.data = list(payload)
 
+        print(f"[TTS pub] Publishing {len(int16_audio)} samples to {CONFIG['audio_output_topic']}")
         self.publisher.publish(msg)
 
         self.message_count += 1
@@ -164,7 +166,7 @@ def main(args=None) -> None:
     node = TextToSpeech()
 
     try:
-        time.sleep(1.0)
+        time.sleep(1.5)
 
         success = node.generate_speech(CONFIG["test_sentence"])
 
@@ -173,7 +175,7 @@ def main(args=None) -> None:
         else:
             print("[TTS] Failed to generate speech")
 
-        time.sleep(1.0)
+        time.sleep(1.5)
 
     except KeyboardInterrupt:
         print("\n[TTS] Interrupted")

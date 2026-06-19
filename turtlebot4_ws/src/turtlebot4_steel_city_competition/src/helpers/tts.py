@@ -43,17 +43,17 @@ def _synthesize_windows(text: str, wav_path: str) -> bool:
 
 def _synthesize_pyttsx3(text: str, wav_path: str) -> bool:
     try:
-        import pyttsx3
-
-        engine = pyttsx3.init()
-        engine.setProperty("rate", TTS_CONFIG["rate"])
-        engine.setProperty("volume", TTS_CONFIG["volume"])
-        engine.save_to_file(text, wav_path)
-        engine.runAndWait()
-        return True
+        import subprocess
+        
+        result = subprocess.run(
+            ["espeak", "-w", wav_path, text],
+            capture_output=True,
+            timeout=10
+        )
+        return result.returncode == 0
 
     except Exception as exc:
-        print(f"[TTS] pyttsx3 synthesis error: {exc}")
+        print(f"[TTS] espeak synthesis error: {exc}")
         return False
 
 
@@ -116,6 +116,11 @@ def generate_speech(text: str, target_rate: Optional[int] = None) -> Optional[np
 
         sample_rate, audio = _read_wav_as_float32(tmp_path)
         audio = _resample_linear(audio, sample_rate, target_rate)
+        
+        peak = np.max(np.abs(audio)) if audio.size > 0 else 1.0
+        if peak > 0.0:
+            audio = audio / peak * 0.95
+        audio = np.clip(audio, -1.0, 1.0)
 
         if audio.size == 0:
             print("[TTS] Generated empty audio")

@@ -66,7 +66,6 @@ class ObjectDetection(Node):
 			cv2.imshow(OBJ_DETECTION_CONFIG["debug_window_name"], self.processed_img)
 			cv2.waitKey(1)
 
-
 	def get_people_detected(self) -> int:
 		return self.people_detected
 
@@ -86,7 +85,6 @@ class ObjectDetection(Node):
 		if self.debug:
 			cv2.destroyAllWindows()
 		return super().destroy_node()
-
 
 def main(args=None) -> None:
 	rclpy.init(args=args)

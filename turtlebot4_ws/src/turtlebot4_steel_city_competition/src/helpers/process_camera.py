@@ -3,9 +3,14 @@
 from typing import Dict, List, Tuple
 import cv2
 from ultralytics import YOLO
+from helpers.retrieve_camera import CAMERA_CONFIG
 
 # Initialize YOLO model once at module level
 model = YOLO("yolov8m.pt")
+
+# Keep detection resolution aligned with camera helper defaults.
+DETECTION_TARGET_SIZE = CAMERA_CONFIG["target_size"]
+DETECTION_IMGSZ = max(DETECTION_TARGET_SIZE)
 
 # Objects to detect
 OBJECTS_TO_DETECT = [
@@ -225,13 +230,16 @@ def process_frame(
         - free_table: Count of free tables
         - objects_detected: Dictionary of detected object counts
     """
+    # Resize to the same target used by retrieve_camera to reduce inference cost.
+    frame = cv2.resize(frame, DETECTION_TARGET_SIZE, interpolation=cv2.INTER_AREA)
+
     # Get frame dimensions
     h, w = frame.shape[:2]
 
     # Run YOLO detection
     # Slightly increased confidence to reduce false person detections,
     # but still low enough for objects like cup/table
-    results = model(frame, conf=0.12, iou=0.50, imgsz=1280, verbose=False)
+    results = model(frame, conf=0.12, iou=0.50, imgsz=DETECTION_IMGSZ, verbose=False)
 
     # Initialize lists for detections
     people_boxes = []
