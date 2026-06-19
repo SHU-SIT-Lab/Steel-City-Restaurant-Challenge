@@ -5,32 +5,75 @@ Each tool has two parts:
      the tool exists and what arguments it takes.
   2. A Python *implementation* — run by execute_tool() when the model asks for it.
 
-NAVIGATION IS JUST A PLACEHOLDER. 
-`navigate_to` always returns success. When the real navigation module is pushed,
-replace the body of `_navigate_placeholder` with a call into it — the schema and
-the rest of the pipeline do not need to change.
+`navigate_to` calls the competition navigation ROS service when available.
 """
+
+from __future__ import annotations
 
 import order
 
-# --------------------------------------------------------------------------- #
-#  Robot action implementations
-# --------------------------------------------------------------------------- #
+_NAV_CLIENT = None
+_ROS_INITIALIZED = False
 
-def _navigate_placeholder(destination: str) -> dict:
-    """Stand-in for the navigation module. Always succeeds.
 
-    Swap this for the real navigation call when available, e.g.:
-        from navigation import go_to
-        return {"success": go_to(destination)}
-    """
-    print(f"[NAV] (placeholder) Navigating to {destination!r} ... success")
-    return {"success": True, "destination": destination}
+def _call_navigation_service(destination: str) -> dict:
+    global _NAV_CLIENT, _ROS_INITIALIZED
+
+    try:
+        import rclpy
+        from rclpy.node import Node
+        from turtlebot4_steel_city_competition.srv import NavigateToWaypoint
+    except ImportError as exc:
+        print(f"[NAV] ROS navigation unavailable ({exc}); pretending success.")
+        return {"success": True, "destination": destination, "message": "ros_unavailable"}
+
+    if not _ROS_INITIALIZED:
+        rclpy.init()
+        _ROS_INITIALIZED = True
+
+    if _NAV_CLIENT is None:
+        class _SpeechNavClient(Node):
+            def __init__(self) -> None:
+                super().__init__("speech_navigation_client")
+                self._client = self.create_client(
+                    NavigateToWaypoint,
+                    "/navigation/navigate_to_waypoint",
+                )
+
+            def navigate(self, target: str) -> dict:
+                if not self._client.wait_for_service(timeout_sec=5.0):
+                    return {
+                        "success": False,
+                        "destination": target,
+                        "message": "Navigation service unavailable.",
+                    }
+                request = NavigateToWaypoint.Request()
+                request.destination = target
+                future = self._client.call_async(request)
+                rclpy.spin_until_future_complete(self, future)
+                if not future.done() or future.result() is None:
+                    return {
+                        "success": False,
+                        "destination": target,
+                        "message": "Navigation service call failed.",
+                    }
+                response = future.result()
+                return {
+                    "success": response.success,
+                    "destination": target,
+                    "message": response.message,
+                }
+
+        _NAV_CLIENT = _SpeechNavClient()
+
+    result = _NAV_CLIENT.navigate(destination)
+    print(f"[NAV] navigate_to({destination!r}) -> {result}")
+    return result
 
 
 def navigate_to(destination: str) -> dict:
     """Drive the robot to a named location."""
-    return _navigate_placeholder(destination)
+    return _call_navigation_service(destination)
 
 
 def record_order(items: list[str], notes: str = "") -> dict:

@@ -34,12 +34,12 @@ Current tools:
 tools the model requests, feeds the results back, and repeats until the model
 returns a final spoken reply. It returns `(reply_text, order_recorded)`.
 
-### Navigation is a placeholder
+### Navigation
 
-`navigate_to` currently calls `_navigate_placeholder()` in `tools.py`, which
-**always returns success** (per the integration plan — navigation module not yet
-pushed). When navigation is ready, replace the body of `_navigate_placeholder`
-with a call into the real module. Nothing else in the pipeline needs to change.
+`navigate_to` calls the competition navigation ROS service
+(`/navigation/navigate_to_waypoint`) when the navigation server is running.
+If ROS or the service is unavailable, it logs a warning and returns success so
+speech development can continue offline.
 
 ### Adding a new tool
 

@@ -27,7 +27,7 @@ from behaviors.update_customer_number_behavior import CheckCustomerNumberBehavio
 from actions.obj_detection import ObjectDetection
 from actions.speech_to_text import SpeechToText
 from actions.text_to_speech import TextToSpeech
-from navigation.restaurant_navigator import RestaurantNavigator
+from navigation.navigation_client import NavigationClient
 
 
 class ReactiveCoordinator(Node):
@@ -136,7 +136,7 @@ def build_nodes() -> List[Node]:
 	nodes: List[Node] = [coordinator, object_detection, speech_to_text, text_to_speech]
 
 	try:
-		navigator = RestaurantNavigator()
+		navigator = NavigationClient()
 		coordinator.ctx["navigation"] = navigator
 		nodes.append(navigator)
 	except Exception as exc:
