@@ -35,18 +35,14 @@ except Exception as exc:
 class TakeOrderBehavior(DeliberativeBehavior):
     def __init__(self) -> None:
         super().__init__(name="take_order")
-
-        self.wait_time = 5.0
-        self.order = 5
-        self.max_dialogue_turns = 8
-        self.ask_timeout = 8.0
-        self.max_no_reply = 3
-
+        self.wait_time = 5.0            # cooldown before this behavior re-runs
+        self.order = 5                 # priority weight when a table is waiting
+        self.max_dialogue_turns = 8    # safety cap on back-and-forth per order
+        self.ask_timeout = 8.0         # seconds to wait for a spoken reply
+        self.max_no_reply = 3          # give up after this many silent turns
         self._order_taker: Optional[OrderTaker] = None
-        self._database: Any = None
-        self.speech_to_text: Any = None
-        self.text_to_speech: Any = None
-        self.navigation: Any = None
+        self.db = RestaurantDatabase()
+
 
     def plan(self, ctx: Any) -> None:
         self._bind_context_interfaces(ctx)
@@ -63,6 +59,7 @@ class TakeOrderBehavior(DeliberativeBehavior):
             if not self._navigate_to(location_id):
                 print(f"[TAKE_ORDER] could not navigate to {location_id!r}.")
                 return
+            shared_state(ctx)["current_table_id"] = table_id
 
             result = self._take_order()
 
@@ -219,188 +216,36 @@ class TakeOrderBehavior(DeliberativeBehavior):
             print(f"[TAKE_ORDER] navigation not wired; pretending navigation to {location_id!r} succeeded.")
             return True
 
-        for method_name in ("navigate_to", "go_to", "go_to_location", "send_goal", "navigate"):
-            method = getattr(navigator, method_name, None)
-
-            if callable(method):
-                try:
-                    result = method(location_id)
-                    return bool(result) if result is not None else True
-                except Exception as exc:
-                    print(f"[TAKE_ORDER] navigation method {method_name} failed ({exc}).")
-                    return False
-
-        print(f"[TAKE_ORDER] no compatible navigation method found for {location_id!r}.")
-        return False
-
-    def _get_database(self) -> Any:
-        if self._database is not None:
-            return self._database
-
-        if RestaurantDatabase is None:
-            return None
-
-        try:
-            self._database = RestaurantDatabase()
-            return self._database
-        except Exception as exc:
-            print(f"[TAKE_ORDER] could not create RestaurantDatabase ({exc}).")
-            return None
-
+    # ------------------------------------------------------------------ #
+    #  Database (STUB — Database team)
+    # ------------------------------------------------------------------ #
     def _get_table_awaiting_order(self) -> Optional[int]:
-        table_id = self._get_table_from_shared_state()
-
-        if table_id is not None:
+        """Return first occupied table with no order yet, or None."""
+        try:
+            table_id = self.db.find_table_needing_order()
+            if table_id is None:
+                print("[TAKE_ORDER] DB: no table needs an order right now.")
+            else:
+                print(f"[TAKE_ORDER] DB: table {table_id} needs an order.")
             return table_id
-
-        db = self._get_database()
-
-        if db is not None:
-            for method_name in (
-                "get_table_awaiting_order",
-                "get_waiting_table",
-                "get_table_waiting_for_order",
-                "find_table_awaiting_order",
-                "next_table_awaiting_order",
-            ):
-                method = getattr(db, method_name, None)
-
-                if callable(method):
-                    try:
-                        result = method()
-                        parsed = self._parse_table_id(result)
-
-                        if parsed is not None:
-                            return parsed
-
-                    except Exception as exc:
-                        print(f"[TAKE_ORDER] database method {method_name} failed ({exc}).")
-
-        test_table = os.environ.get("TAKE_ORDER_TEST_TABLE")
-
-        if test_table:
-            try:
-                return int(test_table)
-            except ValueError:
-                print(f"[TAKE_ORDER] invalid TAKE_ORDER_TEST_TABLE={test_table!r}")
-
-        return None
-
-    def _get_table_from_shared_state(self) -> Optional[int]:
-        if shared_state is None:
+        except Exception as exc:
+            print(f"[TAKE_ORDER] DB read failed ({exc}).")
             return None
-
-        candidate_names = (
-            "table_awaiting_order",
-            "waiting_order_table",
-            "current_table",
-            "assigned_table",
-        )
-
-        for name in candidate_names:
-            try:
-                value = getattr(shared_state, name, None)
-                parsed = self._parse_table_id(value)
-
-                if parsed is not None:
-                    return parsed
-
-            except Exception:
-                pass
-
-        if isinstance(shared_state, dict):
-            for name in candidate_names:
-                parsed = self._parse_table_id(shared_state.get(name))
-
-                if parsed is not None:
-                    return parsed
-
-        return None
-
-    def _parse_table_id(self, value: Any) -> Optional[int]:
-        if value is None:
-            return None
-
-        if isinstance(value, int):
-            return value
-
-        if isinstance(value, str):
-            cleaned = value.strip().lower()
-
-            if cleaned.startswith("table_"):
-                cleaned = cleaned.replace("table_", "", 1)
-
-            if cleaned.startswith("table "):
-                cleaned = cleaned.replace("table ", "", 1)
-
-            if cleaned.isdigit():
-                return int(cleaned)
-
-            return None
-
-        if isinstance(value, dict):
-            for key in ("table_id", "id", "table", "number"):
-                if key in value:
-                    parsed = self._parse_table_id(value[key])
-
-                    if parsed is not None:
-                        return parsed
-
-        return None
 
     def _save_order_to_db(self, table_id: int, items: list, notes: str) -> bool:
-        db = self._get_database()
-
-        if db is not None:
-            for method_name in (
-                "save_order",
-                "create_order",
-                "add_order",
-                "record_order",
-                "save_order_for_table",
-                "set_order_for_table",
-            ):
-                method = getattr(db, method_name, None)
-
-                if callable(method):
-                    try:
-                        self._call_save_method(method, table_id, items, notes)
-                        print(f"[TAKE_ORDER] saved order for table {table_id}: {items} notes={notes!r}")
-                        return True
-                    except TypeError:
-                        continue
-                    except Exception as exc:
-                        print(f"[TAKE_ORDER] database save method {method_name} failed ({exc}).")
-                        return False
-
+        """Save confirmed order to Firestore for this table."""
         try:
-            import order
-
-            if hasattr(order, "save_order_for_table"):
-                order.save_order_for_table(table_id=table_id, items=items, notes=notes)
-                print(f"[TAKE_ORDER] saved order locally for table {table_id}: {items} notes={notes!r}")
-                return True
-
+            clean_items = [str(item).strip() for item in items if str(item).strip()]
+            clean_notes = str(notes or "").strip()
+            if not clean_items:
+                print(f"[TAKE_ORDER] DB: empty order for table {table_id}; not saving.")
+                return False
+            self.db.save_order(table_id, items=clean_items, notes=clean_notes)
+            print(
+                f"[TAKE_ORDER] DB saved for table {table_id}: "
+                f"items={clean_items} notes={clean_notes!r}"
+            )
+            return True
         except Exception as exc:
-            print(f"[TAKE_ORDER] local order fallback failed ({exc}).")
-
-        print(f"[TAKE_ORDER] no database writer available for table {table_id}: {items} notes={notes!r}")
-        return False
-
-    def _call_save_method(self, method: Any, table_id: int, items: list, notes: str) -> Any:
-        try:
-            return method(table_id=table_id, items=items, notes=notes)
-        except TypeError:
-            pass
-
-        try:
-            return method(table_id, items, notes)
-        except TypeError:
-            pass
-
-        try:
-            return method(table_id=table_id, order={"items": items, "notes": notes})
-        except TypeError:
-            pass
-
-        return method({"table_id": table_id, "items": items, "notes": notes})
+            print(f"[TAKE_ORDER] DB save failed for table {table_id} ({exc}).")
+            return False
