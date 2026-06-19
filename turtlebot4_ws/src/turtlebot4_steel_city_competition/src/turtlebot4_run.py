@@ -16,7 +16,12 @@ SRC_DIR = Path(__file__).resolve().parent
 if str(SRC_DIR) not in sys.path:
 	sys.path.insert(0, str(SRC_DIR))
 
-from behaviors.behaviors import DeliberativeBehavior
+from behaviors.behaviors import (
+	DeliberativeBehavior,
+	_get_shared_object_detection,
+	_get_shared_speech_to_text,
+	_get_shared_text_to_speech,
+)
 from behaviors.check_customer_behavior import CheckCustomerBehavior
 from behaviors.check_empty_table_behavior import CheckEmptyTableBehavior
 from behaviors.collect_order_behavior import CollectOrderBehavior
@@ -27,7 +32,6 @@ from behaviors.update_customer_number_behavior import CheckCustomerNumberBehavio
 from actions.obj_detection import ObjectDetection
 from actions.speech_to_text import SpeechToText
 from actions.text_to_speech import TextToSpeech
-from navigation.navigation_client import NavigationClient
 
 
 class ReactiveCoordinator(Node):
@@ -125,22 +129,20 @@ class ReactiveCoordinator(Node):
 
 def build_nodes() -> List[Node]:
 	coordinator = ReactiveCoordinator()
-	object_detection = ObjectDetection()
-	speech_to_text = SpeechToText()
-	text_to_speech = TextToSpeech()
+	nodes: List[Node] = [coordinator]
 
-	coordinator.ctx["object_detection"] = object_detection
-	coordinator.ctx["speech_to_text"] = speech_to_text
-	coordinator.ctx["text_to_speech"] = text_to_speech
-
-	nodes: List[Node] = [coordinator, object_detection, speech_to_text, text_to_speech]
-
-	try:
-		navigator = NavigationClient()
-		coordinator.ctx["navigation"] = navigator
-		nodes.append(navigator)
-	except Exception as exc:
-		coordinator.get_logger().warn(f"Navigation unavailable ({exc}). Behaviors will stub navigation.")
+	# Add the SAME shared action-node instances the behaviors use, so the
+	# executor actually spins them. Otherwise the behaviors hold one instance
+	# while the executor spins a different one, the mic callback never runs,
+	# and get_next_utterance() always times out.
+	for getter in (
+		_get_shared_object_detection,
+		_get_shared_speech_to_text,
+		_get_shared_text_to_speech,
+	):
+		node = getter()
+		if node is not None and node not in nodes:
+			nodes.append(node)
 
 	return nodes
 
