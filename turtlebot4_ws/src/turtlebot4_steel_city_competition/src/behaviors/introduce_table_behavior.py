@@ -25,6 +25,9 @@ class IntroduceTableBehavior(DeliberativeBehavior):
 		self.db = RestaurantDatabase()
 
 	def plan(self, ctx: Any) -> None:
+		if not self.db.should_guide_customer_to_table():
+			return
+
 		table_id = self.db.find_empty_table()
 		if table_id is None:
 			return
@@ -33,13 +36,16 @@ class IntroduceTableBehavior(DeliberativeBehavior):
 		set_navigation_target(
 			ctx,
 			ENTRANCE_LOCATION,
-			table_id=table_id,
 			next_location=table_location,
 		)
 
-		self.db.assign_table(table_id)
-		self.db.decrement_customers_waiting()
-		shared_state(ctx)["assigned_table_id"] = table_id
+		state = shared_state(ctx)
+		state["assigned_table_id"] = table_id
+		try:
+			self.db.assign_table(table_id)
+			self.db.decrement_customers_waiting()
+		except Exception as exc:
+			print(f"[INTRODUCE_TABLE] Firestore write failed ({exc}).")
 
 		# TODO: Navigation team — entrance first, then next_target_location (table).
 		# TODO: LLM — guide customer and explain how to order.

@@ -13,6 +13,8 @@ dependencies:
     - openai
     - pyttsx3
     - scipy
+    - opencv-python
+    - ultralytics
   - setuptools
   - wheel
 

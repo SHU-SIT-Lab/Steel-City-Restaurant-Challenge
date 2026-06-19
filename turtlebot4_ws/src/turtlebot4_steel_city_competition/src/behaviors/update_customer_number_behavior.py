@@ -19,23 +19,26 @@ class CheckCustomerNumberBehavior(DeliberativeBehavior):
 		self.db = RestaurantDatabase()
 
 	def plan(self, ctx: Any) -> None:
-		# TODO 1: Navigation
-		# Move robot to entrance.
-
-		# TODO 2: LLM
-		# Greet and ask for number of customers.
-
-		# TODO 3: Database
-		# Update collaborator database with the number of new customers waiting.
 		set_navigation_target(ctx, ENTRANCE_LOCATION)
 		state = shared_state(ctx)
+
+		if self.object_detection is not None:
+			self.object_detection.current_table_id = None
+
 		count = state.get("customers_waiting", state.get("customer_number"))
+		if count is None and self.object_detection is not None:
+			count = getattr(self.object_detection, "customers_waiting", None)
 		if count is None:
 			count = 1 if self.db.customers_detected_at_entrance() else 0
 
 		customer_count = get_int(count)
-		self.db.set_customers_waiting(customer_count)
-		self.db.set_customers_detected_at_entrance(customer_count > 0)
+		state["customers_waiting"] = customer_count
+		state["customer_present"] = customer_count > 0
+		try:
+			self.db.set_customers_waiting(customer_count)
+			self.db.set_customers_detected_at_entrance(customer_count > 0)
+		except Exception as exc:
+			print(f"[CHECK_CUSTOMER_NUMBER] Firestore write failed ({exc}).")
 
 	def compute_priority(self) -> float:
 		# TODO 4: Database

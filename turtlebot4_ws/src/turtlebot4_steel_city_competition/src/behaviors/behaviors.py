@@ -75,23 +75,40 @@ class DeliberativeBehavior(ABC):
         if ctx is None:
             return
 
-        for attr_name in ("object_detection", "vision", "obj_detection"):
-            value = getattr(ctx, attr_name, None)
-            if value is not None:
-                self.object_detection = value
-                break
+        if isinstance(ctx, dict):
+            for attr_name in ("object_detection", "vision", "obj_detection"):
+                value = ctx.get(attr_name)
+                if value is not None:
+                    self.object_detection = value
+                    break
+            for attr_name in ("speech_to_text", "stt", "speech"):
+                value = ctx.get(attr_name)
+                if value is not None:
+                    self.speech_to_text = value
+                    break
+            for attr_name in ("text_to_speech", "tts"):
+                value = ctx.get(attr_name)
+                if value is not None:
+                    self.text_to_speech = value
+                    break
+        else:
+            for attr_name in ("object_detection", "vision", "obj_detection"):
+                value = getattr(ctx, attr_name, None)
+                if value is not None:
+                    self.object_detection = value
+                    break
 
-        for attr_name in ("speech_to_text", "stt", "speech"):
-            value = getattr(ctx, attr_name, None)
-            if value is not None:
-                self.speech_to_text = value
-                break
+            for attr_name in ("speech_to_text", "stt", "speech"):
+                value = getattr(ctx, attr_name, None)
+                if value is not None:
+                    self.speech_to_text = value
+                    break
 
-        for attr_name in ("text_to_speech", "tts"):
-            value = getattr(ctx, attr_name, None)
-            if value is not None:
-                self.text_to_speech = value
-                break
+            for attr_name in ("text_to_speech", "tts"):
+                value = getattr(ctx, attr_name, None)
+                if value is not None:
+                    self.text_to_speech = value
+                    break
 
     @abstractmethod
     def plan(self, ctx: Any) -> None:
