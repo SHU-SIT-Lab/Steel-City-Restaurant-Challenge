@@ -1,0 +1,37 @@
+# Named poses for restaurant navigation (map frame).
+# Update x/y/yaw after mapping the competition arena.
+
+entrance:
+  x: 0.0
+  y: 0.0
+  yaw: 0.0
+
+barista:
+  x: 1.0
+  y: 0.0
+  yaw: 1.57
+
+table_1:
+  x: 2.0
+  y: 1.0
+  yaw: 3.14
+
+table_2:
+  x: 2.0
+  y: 2.0
+  yaw: 3.14
+
+table_3:
+  x: 2.0
+  y: 3.0
+  yaw: 3.14
+
+table_4:
+  x: 2.0
+  y: 4.0
+  yaw: 3.14
+
+table_5:
+  x: 2.0
+  y: 5.0
+  yaw: 3.14

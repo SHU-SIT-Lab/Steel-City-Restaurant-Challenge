@@ -3,16 +3,23 @@
 <package format="3">
   <name>turtlebot4_steel_city_competition</name>
   <version>0.0.0</version>
-  <description>TODO: Package description</description>
+  <description>Steel City Restaurant Challenge competition stack for TurtleBot4</description>
   <maintainer email="aung9htet.ah@gmail.com">root</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_cmake</buildtool_depend>
+
   <depend>rclpy</depend>
   <depend>sensor_msgs</depend>
-  <depend>cv_bridge</depend>
   <depend>std_msgs</depend>
+  <depend>geometry_msgs</depend>
+  <depend>nav2_msgs</depend>
+  <depend>cv_bridge</depend>
+  <depend>nav2_simple_commander</depend>
+  <depend>audio_common_msgs</depend>
+
   <exec_depend>python3-numpy</exec_depend>
+  <exec_depend>python3-yaml</exec_depend>
   <exec_depend>python3-pyaudio</exec_depend>
   <exec_depend>launch</exec_depend>
   <exec_depend>launch_ros</exec_depend>

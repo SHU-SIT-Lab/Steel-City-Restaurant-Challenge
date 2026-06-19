@@ -100,11 +100,18 @@ class TakeOrderBehavior(DeliberativeBehavior):
                 self.text_to_speech = value
                 break
 
-        for name in ("navigation", "navigator", "nav"):
-            value = getattr(ctx, name, None)
-            if value is not None:
-                self.navigation = value
-                break
+        if isinstance(ctx, dict):
+            for name in ("navigation", "navigator", "nav"):
+                value = ctx.get(name)
+                if value is not None:
+                    self.navigation = value
+                    break
+        else:
+            for name in ("navigation", "navigator", "nav"):
+                value = getattr(ctx, name, None)
+                if value is not None:
+                    self.navigation = value
+                    break
 
         for name in ("database", "db", "restaurant_database"):
             value = getattr(ctx, name, None)
