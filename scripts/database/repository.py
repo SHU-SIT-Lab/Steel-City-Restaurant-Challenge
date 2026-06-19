@@ -130,6 +130,17 @@ class RestaurantDatabase:
                 return table.table_id
         return None
 
+    def find_table_with_pending_order(self) -> Optional[int]:
+        """Return a table that ordered but is not marked ready yet."""
+        for table in self.list_tables():
+            if (
+                table.status == TableStatus.OCCUPIED.value
+                and table.has_ordered
+                and not table.order_ready
+            ):
+                return table.table_id
+        return None
+
     def find_table_with_ready_order(self) -> Optional[int]:
         for table in self.list_tables():
             if (
@@ -143,6 +154,9 @@ class RestaurantDatabase:
 
     def has_table_needing_order(self) -> bool:
         return self.find_table_needing_order() is not None
+
+    def has_pending_order(self) -> bool:
+        return self.find_table_with_pending_order() is not None
 
     def has_ready_order(self) -> bool:
         return self.find_table_with_ready_order() is not None
