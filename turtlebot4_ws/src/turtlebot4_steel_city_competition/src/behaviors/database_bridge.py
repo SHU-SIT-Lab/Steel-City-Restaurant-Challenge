@@ -5,8 +5,7 @@ from __future__ import annotations
 from pathlib import Path
 import re
 import sys
-from typing import Any
-
+from typing import Any, Optional
 
 REPO_ROOT = Path(__file__).resolve().parents[5]
 DATABASE_DIR = REPO_ROOT / "scripts" / "database"
@@ -16,6 +15,31 @@ if str(DATABASE_DIR) not in sys.path:
 
 from models import TableStatus
 from repository import RestaurantDatabase
+
+ENTRANCE_LOCATION = "entrance"
+BARISTA_LOCATION = "barista"
+
+
+def table_id_to_location(table_id: int) -> str:
+	"""Map Firestore table id (0-based) to waypoint name (table_1 … table_N)."""
+	return f"table_{table_id + 1}"
+
+
+def set_navigation_target(
+	ctx: Any,
+	location_id: str,
+	table_id: Optional[int] = None,
+	next_location: Optional[str] = None,
+) -> None:
+	"""Publish navigation targets for the navigation team via shared_state."""
+	state = shared_state(ctx)
+	state["target_location"] = location_id
+	if table_id is not None:
+		state["current_table_id"] = table_id
+	if next_location is not None:
+		state["next_target_location"] = next_location
+	else:
+		state.pop("next_target_location", None)
 
 
 def shared_state(ctx: Any) -> dict[str, Any]:

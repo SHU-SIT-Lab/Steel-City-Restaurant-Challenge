@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from behaviors.behaviors import DeliberativeBehavior
-from behaviors.database_bridge import RestaurantDatabase, get_bool, shared_state
+from behaviors.database_bridge import ENTRANCE_LOCATION, RestaurantDatabase, get_bool, set_navigation_target, shared_state
 
 
 class CheckCustomerBehavior(DeliberativeBehavior):
@@ -27,6 +27,7 @@ class CheckCustomerBehavior(DeliberativeBehavior):
 
 		# TODO 3: Database
 		# Use collaborator database integration to update if a new customer is detected.
+		set_navigation_target(ctx, ENTRANCE_LOCATION)
 		state = shared_state(ctx)
 		detected = state.get("customer_present", self.object_detection.customer_present)
 		self.db.set_customers_detected_at_entrance(get_bool(detected))

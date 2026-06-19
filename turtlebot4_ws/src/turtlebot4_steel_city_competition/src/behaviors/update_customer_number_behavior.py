@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from behaviors.behaviors import DeliberativeBehavior
-from behaviors.database_bridge import RestaurantDatabase, get_int, shared_state
+from behaviors.database_bridge import ENTRANCE_LOCATION, RestaurantDatabase, get_int, set_navigation_target, shared_state
 
 
 class CheckCustomerNumberBehavior(DeliberativeBehavior):
@@ -27,6 +27,7 @@ class CheckCustomerNumberBehavior(DeliberativeBehavior):
 
 		# TODO 3: Database
 		# Update collaborator database with the number of new customers waiting.
+		set_navigation_target(ctx, ENTRANCE_LOCATION)
 		state = shared_state(ctx)
 		count = state.get("customers_waiting", state.get("customer_number"))
 		if count is None:

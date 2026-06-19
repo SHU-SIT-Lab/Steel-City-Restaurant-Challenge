@@ -38,6 +38,42 @@ class RestaurantDatabase:
         ref = self._db.collection(self._state).document(_STATE_DOC_ID)
         ref.set(RestaurantStateDocument().to_dict(), merge=True)
 
+    def reset_all_tables(self, table_count: Optional[int] = None) -> None:
+        """Clear every table document back to empty defaults."""
+        count = table_count if table_count is not None else number_of_tables()
+        batch = self._db.batch()
+        for table_id in range(count):
+            ref = self._db.collection(self._tables).document(str(table_id))
+            batch.set(ref, TableDocument(table_id=table_id).to_dict())
+        batch.commit()
+
+    def reset_restaurant_state(
+        self,
+        *,
+        customers_waiting: int = 0,
+        customers_detected_at_entrance: bool = False,
+    ) -> None:
+        """Replace entrance queue state (does not merge stale fields)."""
+        ref = self._db.collection(self._state).document(_STATE_DOC_ID)
+        ref.set(
+            RestaurantStateDocument(
+                customers_waiting=max(0, customers_waiting),
+                customers_detected_at_entrance=customers_detected_at_entrance,
+            ).to_dict()
+        )
+
+    def prepare_demo_entrance(self, customers_waiting: int = 1) -> None:
+        """Set entrance state so introduce_table can run in tests."""
+        self.reset_restaurant_state(
+            customers_waiting=max(1, customers_waiting),
+            customers_detected_at_entrance=True,
+        )
+
+    def reset_for_demo(self, customers_waiting: int = 1) -> None:
+        """Clear all tables and seed a waiting customer at the entrance."""
+        self.reset_all_tables()
+        self.prepare_demo_entrance(customers_waiting=customers_waiting)
+
     # --- tables ---
 
     def get_table(self, table_id: int) -> TableDocument:
@@ -50,6 +86,9 @@ class RestaurantDatabase:
         docs = self._db.collection(self._tables).stream()
         tables = [TableDocument.from_dict(doc.to_dict()) for doc in docs]
         return sorted(tables, key=lambda table: table.table_id)
+
+    def list_table_ids(self) -> list[int]:
+        return [table.table_id for table in self.list_tables()]
 
     def update_table_status(self, table_id: int, status: TableStatus) -> None:
         ref = self._db.collection(self._tables).document(str(table_id))
@@ -130,6 +169,17 @@ class RestaurantDatabase:
                 return table.table_id
         return None
 
+    def find_table_with_pending_order(self) -> Optional[int]:
+        """Return a table that ordered but is not marked ready yet."""
+        for table in self.list_tables():
+            if (
+                table.status == TableStatus.OCCUPIED.value
+                and table.has_ordered
+                and not table.order_ready
+            ):
+                return table.table_id
+        return None
+
     def find_table_with_ready_order(self) -> Optional[int]:
         for table in self.list_tables():
             if (
@@ -143,6 +193,9 @@ class RestaurantDatabase:
 
     def has_table_needing_order(self) -> bool:
         return self.find_table_needing_order() is not None
+
+    def has_pending_order(self) -> bool:
+        return self.find_table_with_pending_order() is not None
 
     def has_ready_order(self) -> bool:
         return self.find_table_with_ready_order() is not None

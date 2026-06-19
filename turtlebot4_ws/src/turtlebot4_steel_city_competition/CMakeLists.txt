@@ -21,10 +21,12 @@ install(PROGRAMS
   src/actions/speech_to_text.py
   src/actions/text_to_speech.py
   src/behaviors/behaviors.py
+  src/behaviors/database_bridge.py
   src/behaviors/check_customer_behavior.py
   src/behaviors/check_empty_table_behavior.py
   src/behaviors/collect_order_behavior.py
   src/behaviors/introduce_table_behavior.py
+  src/behaviors/mark_order_ready_behavior.py
   src/behaviors/take_order_behavior.py
   src/behaviors/update_customer_number_behavior.py
   src/publishers/mic_publisher.py
