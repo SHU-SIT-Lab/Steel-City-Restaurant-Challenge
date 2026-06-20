@@ -517,6 +517,17 @@ dd {
   border-color: rgba(227, 93, 79, 0.85);
 }
 
+/* Keep the absolutely-positioned card anchored on hover/press and only highlight
+   it — the global button hover/active would replace translate(-50%, -50%) and
+   make the card jump out of place. */
+.table-card:hover:not(:disabled),
+.table-card:active:not(:disabled) {
+  transform: translate(-50%, -50%);
+  background: #2a3733;
+  border-color: rgba(216, 169, 79, 0.85);
+  box-shadow: 0 0 0 2px rgba(216, 169, 79, 0.3);
+}
+
 .table-card small {
   color: #aebbb4;
 }
