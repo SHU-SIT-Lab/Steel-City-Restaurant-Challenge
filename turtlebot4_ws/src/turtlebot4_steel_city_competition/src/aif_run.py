@@ -57,13 +57,29 @@ class AIFBehaviorSelector:
     the agent *observes* the restaurant phase instead of running a look-behavior.
     """
 
-    def __init__(self) -> None:
+    def __init__(self, use_law: bool = False) -> None:
         import generative_model as gm
         from aif_coordinator import ACTION_TO_TARGET, AIFWaiter
 
         self.gm = gm
         self.action_to_target = ACTION_TO_TARGET
         self.waiter = AIFWaiter()
+
+        # Optional law-as-code: when several tables are in progress, a precedence
+        # rule (fairness / throughput / accessibility) chooses which to serve next.
+        self.use_law = use_law
+        self._law_order = None
+        self._customer_cls = None
+        if use_law:
+            try:
+                from game_phases_multi import Customer, law_order
+
+                self._customer_cls = Customer
+                self._law_order = law_order
+            except Exception:
+                self.use_law = False
+        self._tick = 0
+        self._first_seen: Dict[int, int] = {}
 
     def observe(self, db: Any, ctx: Any) -> int:
         """Read the active table's service phase from the DB -> AIF phase observation."""
@@ -88,20 +104,75 @@ class AIFBehaviorSelector:
         return gm.EMPTY
 
     def _active_table(self, db: Any, state: Dict[str, Any]) -> Optional[int]:
-        tid = state.get("current_table_id")
-        if tid is not None:
-            return int(tid)
-        for finder in ("find_table_with_ready_order", "find_table_with_pending_order",
-                       "find_table_needing_order"):
-            fn = getattr(db, finder, None)
-            if callable(fn):
-                try:
-                    t = fn()
-                except Exception:
-                    t = None
-                if t is not None:
-                    return int(t)
-        return None
+        """Which table to serve now. We *lock* onto a table until it's delivered
+        (no mid-service thrashing); when free, pick the next one — by the
+        precedence law if enabled, else FIFO (lowest table id)."""
+        self._tick += 1
+        locked = state.get("current_table_id")
+        if locked is not None:
+            return int(locked)  # serve this table until the node releases it (on DELIVERED)
+
+        candidates = self._candidates(db)
+        if not candidates:
+            return None
+        for tid in candidates:
+            self._first_seen.setdefault(tid, self._tick)
+
+        if self.use_law and self._law_order is not None and len(candidates) > 1:
+            chosen = self._law_pick(db, candidates)
+        else:
+            chosen = min(candidates)  # FIFO
+        state["current_table_id"] = chosen
+        return chosen
+
+    def _table_ids(self, db: Any):
+        fn = getattr(db, "list_tables", None)
+        if callable(fn):
+            try:
+                return [getattr(t, "table_id", i) for i, t in enumerate(fn())]
+            except Exception:
+                pass
+        ids = []
+        for i in range(8):  # fallback: probe a handful of ids
+            try:
+                if db.get_table(i) is not None:
+                    ids.append(i)
+            except Exception:
+                continue
+        return ids
+
+    def _candidates(self, db: Any):
+        """Table ids with a customer in progress (occupied, not yet delivered)."""
+        out = []
+        for tid in self._table_ids(db):
+            try:
+                t = db.get_table(int(tid))
+            except Exception:
+                continue
+            if getattr(t, "order_delivered", False):
+                continue
+            status = getattr(t, "status", "")
+            if status and status != "empty":
+                out.append(int(tid))
+        return out
+
+    def _law_pick(self, db: Any, candidates) -> int:
+        """Order in-progress tables by the precedence law; return the top table id."""
+        custs = []
+        for tid in candidates:
+            t = db.get_table(int(tid))
+            size = (getattr(t, "party_size", None)
+                    or getattr(t, "number_of_customers", None) or 2)
+            wait = getattr(t, "wait_minutes", None)
+            if wait is None:
+                wait = self._tick - self._first_seen.get(tid, self._tick)
+            priority = bool(getattr(t, "priority", False)
+                            or getattr(t, "accessibility", False))
+            custs.append(self._customer_cls(name=str(tid), size=int(size),
+                                            wait=int(wait), priority=priority))
+        busy = min(1.0, (len(candidates) - 1) / 4.0)  # more waiting tables -> busier
+        ordered = self._law_order(custs, busy=busy)
+        return int(ordered[0].name)
 
     def select(self, obs_idx: int):
         """Return (action_index, kind, target) for the EFE-chosen action."""
@@ -157,8 +228,12 @@ def _make_coordinator_class():
                 "mark_order_ready": MarkOrderReadyBehavior(),
                 "collect_order": CollectOrderBehavior(),
             }
-            self.selector = AIFBehaviorSelector()
-            self.get_logger().info("AIF coordinator ready (EFE selection over the service behaviors).")
+            import os
+
+            use_law = bool(os.environ.get("AIF_LAW"))
+            self.selector = AIFBehaviorSelector(use_law=use_law)
+            mode = "law-as-code multi-customer ordering" if use_law else "FIFO (no law)"
+            self.get_logger().info(f"AIF coordinator ready (EFE selection; table choice: {mode}).")
             # one deliberate decision per second (AIF inference + behavior execution)
             self.create_timer(1.0, self._aif_step)
 
@@ -175,6 +250,9 @@ def _make_coordinator_class():
         def _aif_step(self) -> None:
             try:
                 obs = self.selector.observe(self.db, self.ctx)
+                if obs == self.selector.gm.DELIVERED:
+                    # table served -> release the lock so the next one is chosen
+                    self.shared_state.pop("current_table_id", None)
                 action, kind, target = self.selector.select(obs)
                 self.ctx["selected_action"] = action
                 if kind == "nav":

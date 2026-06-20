@@ -20,6 +20,36 @@ AIF_COORDINATOR=1 ros2 launch turtlebot4_steel_city_competition steel_city.launc
 reactive behavior, byte-for-byte. You can also run the node directly:
 `ros2 run turtlebot4_steel_city_competition aif_run.py`.
 
+## Options (env-var flags)
+
+Two flags, both **off by default** — so the default is reactive, and within AIF
+the default is *no* law-as-code, exactly as requested:
+
+| Flag | Unset (default) | Set (`=1`) |
+| --- | --- | --- |
+| `AIF_COORDINATOR` | **reactive** coordinator (`ReactiveCoordinator`) | **active-inference** coordinator (`AIFCoordinator`) |
+| `AIF_LAW` | within AIF, pick the next table **FIFO** (no law) | within AIF, pick the next table by the **precedence law** (fairness / throughput / accessibility) |
+
+`AIF_LAW` only matters when `AIF_COORDINATOR=1` (it tunes how the AIF coordinator
+chooses *which* in-progress table to serve next). The three useful combinations:
+
+```bash
+# 1) default — reactive system, unchanged
+ros2 launch turtlebot4_steel_city_competition steel_city.launch.py
+
+# 2) active inference, no law (FIFO table choice)
+AIF_COORDINATOR=1 ros2 launch turtlebot4_steel_city_competition steel_city.launch.py
+
+# 3) active inference + law-as-code multi-customer ordering
+AIF_COORDINATOR=1 AIF_LAW=1 ros2 launch turtlebot4_steel_city_competition steel_city.launch.py
+```
+
+When `AIF_LAW=1` and several tables are in progress, the node builds a `Customer`
+per table (party size, wait time, accessibility flag), orders them with
+`game_phases_multi.law_order` (busyness derived from how many tables are waiting),
+and serves the top one — **locking onto it until it's delivered** so service never
+thrashes mid-table.
+
 ## What it does each tick
 
 ```
@@ -52,14 +82,18 @@ a second (each tick is a deliberate EFE inference + a behavior execution).
 
 ## Status (honest)
 
-- **Validated headless:** `scripts/aif/test_ros_integration.py` (3 tests) — the
-  observation encoding, action selection, and a full mock-restaurant run where the
-  EFE selector drives a table **EMPTY → DELIVERED**. Both ROS files `py_compile`.
+- **Validated headless:** `scripts/aif/test_ros_integration.py` (6 tests) — the
+  observation encoding, action selection, a full mock-restaurant run where the EFE
+  selector drives a table **EMPTY → DELIVERED**, and the table-choice policy
+  (FIFO by default; the law picks the higher-precedence table; the accessibility
+  flag is a hard override). Both ROS files `py_compile`.
 - **Not yet validated on hardware** — needs the robot + a colcon build of the
   workspace in a Jazzy env with jax/pymdp installed. JAX's first XLA compile at
   node start is slow (seconds–minutes); the agent is fine after that.
-- **Single-table for now** — uses the table model. Multi-customer ordering (the
-  law-as-code in V2) is not yet wired into the live node.
+- **Scope** — each table is served via the table model; `AIF_LAW=1` adds the
+  multi-customer precedence ordering. Still uses the **Firestore phase** as the
+  observation (not yet the live vision/speech topics); a fully *joint* multi-table
+  POMDP (serve A while B's food cooks) remains future work.
 
 See [aif_architecture.md](aif_architecture.md) for where this sits, and
 [run_without_docker.md](run_without_docker.md) / [OPERATIONS.md](OPERATIONS.md)
