@@ -145,6 +145,10 @@ cd turtlebot4_ws && colcon build --symlink-install && source install/setup.bash
 Then follow the competition workflow in the navigation guide.
 
 
+## Operations (running the robot)
+
+To drive the robot from a Windows/WSL2 laptop, **start with [docs/OPERATIONS.md](docs/OPERATIONS.md)** — one-time host setup, the per-session connect/run steps, and the "ping works but ROS sees nothing" fix. Windows helper scripts live in [scripts/windows/](scripts/windows/).
+
 ## Documentation
 
 
@@ -156,6 +160,11 @@ Then follow the competition workflow in the navigation guide.
 | Speech       | [docs/speech.md](docs/speech.md)             |
 | Task Manager | [docs/task_manager.md](docs/task_manager.md) |
 | Vision       | [docs/vision.md](docs/vision.md)             |
+| Operations   | [docs/OPERATIONS.md](docs/OPERATIONS.md)     |
+| Host setup (WSL) | [docs/wsl_host_setup.md](docs/wsl_host_setup.md) |
+| DDS over Wi-Fi   | [docs/troubleshooting_dds_wsl.md](docs/troubleshooting_dds_wsl.md) |
+| Furniture costmap | [docs/furniture_costmap.md](docs/furniture_costmap.md) |
+| Active inference (WIP) | [docs/aif_design.md](docs/aif_design.md) |
 | Migration    | [docs/report.md](docs/report.md)             |
 
 

@@ -1,0 +1,14 @@
+# Copy this to C:\Users\<you>\.wslconfig then run `wsl --shutdown` to apply.
+#
+# Mirrored networking shares the Windows network interfaces into the WSL VM, so
+# the laptop's 192.168.x address (on the robot's Wi-Fi) is visible inside WSL and
+# the robot can route ROS 2 / DDS traffic back to it. Without this, WSL gets an
+# isolated 172.x NAT address the robot cannot reach.
+[wsl2]
+networkingMode=mirrored
+dnsTunneling=true
+firewall=true
+autoProxy=true
+
+[experimental]
+hostAddressLoopback=true
