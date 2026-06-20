@@ -48,6 +48,16 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Fall back to the default ROBOT_IP in docker/nav.env when none was passed.
+NAV_ENV="$(dirname "$0")/nav.env"
+if [[ -z "${ROBOT_IP:-}" && -f "$NAV_ENV" ]]; then
+    ENV_ROBOT_IP="$(sed -n 's/^ROBOT_IP=//p' "$NAV_ENV" | tail -n1)"
+    if validate_ipv4 "$ENV_ROBOT_IP"; then
+        ROBOT_IP="$ENV_ROBOT_IP"
+        echo "Using ROBOT_IP=$ROBOT_IP from docker/nav.env"
+    fi
+fi
+
 if [[ -z "${ROBOT_IP:-}" ]]; then
     while true; do
         read -r -p "Discovery Server IP (TurtleBot4 RPi Wi-Fi IP): " ROBOT_IP
