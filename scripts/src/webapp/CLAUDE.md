@@ -38,9 +38,10 @@ middleware plugin that routes every `/api/*` request to `server/api.cjs`. That f
 Firebase client SDK; it reaches Firestore exclusively through these `/api` routes.
 
 **Data flow (polling, not realtime).** `src/hooks/useOpsData.ts` is the single source of app state:
-- On mount and **every 3 seconds** it `GET`s `/api/snapshot`, which returns the entire `OpsSnapshot`
-  (all collections in one payload). Despite the plan mentioning Firestore realtime listeners, the
-  implementation polls.
+- On mount and **every 8 seconds** (`BASE_POLL_MS`; exponential backoff up to 60s on errors, and
+  paused while the browser tab is hidden) it `GET`s `/api/snapshot`, which returns the entire
+  `OpsSnapshot` (all collections in one payload). The client polls; `server/api.cjs` keeps Firestore
+  `onSnapshot` listeners warming an in-memory cache that this endpoint serves.
 - Every mutation goes through `mutate()`: call the write endpoint, then immediately `refresh()`. The UI has
   `loading`/`saving`/`error` flags but no optimistic local updates.
 - **`mock` vs `live` mode:** the app boots in `mock` mode rendering `src/data/mockFirestore.ts`. A successful
