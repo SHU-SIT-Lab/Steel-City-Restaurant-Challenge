@@ -121,6 +121,8 @@ After installing extra tools or packages inside a running container, save the mo
 docker commit steel-city-dev steel-city-jazzy:latest
 ```
 
+**Note:** `docker commit` saves `/etc/turtlebot4/setup.bash` with the current discovery-server IP. After committing, always recreate the container with `./docker/run_container.sh <robot-ip>` (do not rely on `docker start` alone) so the entrypoint regenerates `setup.bash` for the correct robot address.
+
 Or save under a new tag:
 
 ```bash
@@ -129,58 +131,19 @@ docker commit steel-city-dev steel-city-jazzy:my-save
 
 Rebuild from the Dockerfile when you change repository Docker files rather than relying on a saved container.
 
-### Inside the container
+### Working with ROS (Docker)
 
-Build the workspace:
+See **[docs/navigation.md](docs/navigation.md)** for the full navigation guide: competition map usage, localization, waypoints, and the waypoint GUI helper.
 
-```bash
-cd turtlebot4_ws
-colcon build --symlink-install
-source install/setup.bash
-```
-
-### Configure Create 3 discovery (web UI)
-
-Before verifying ROS connectivity, configure the Create 3 to use your computer as the Fast DDS discovery server.
-
-1. Open the Create 3 web interface in a browser on your computer:
-  ```
-   http://ROBOT_IP:8080
-  ```
-   Example: `http://192.168.1.150:8080`
-2. Go to **Application** → **Configuration**.
-3. Enable **Enable Fast DDS discovery server**.
-4. Set **Address and port of Fast DDS discovery server** to your computer’s IP and port `11811`:
-  ```
-   COMPUTER_IP:11811
-  ```
-   Example: `192.168.1.42:11811` (use the Wi-Fi IP of the machine running Docker, not `127.0.0.1`).
-5. Save/apply the configuration. The Create 3 may reboot when settings are applied.
-
-Verify robot connectivity:
+Quick start:
 
 ```bash
-ros2 topic list   # run twice if the list looks incomplete
+./docker/run_container.sh 192.168.4.239
+cd turtlebot4_ws && colcon build --symlink-install && source install/setup.bash
 ```
 
-Launch the competition stack:
+Then follow the competition workflow in the navigation guide.
 
-```bash
-ros2 launch turtlebot4_steel_city_competition steel_city.launch.py
-```
-
-### Robot-side (on the TurtleBot4 RPi)
-
-Run these on the robot before connecting from Docker:
-
-```bash
-ros2 launch turtlebot4_bringup robot.launch.py
-# In separate terminals on the robot:
-ros2 launch turtlebot4_navigation localization.launch.py map:=your_map.yaml
-ros2 launch turtlebot4_navigation nav2.launch.py
-```
-
-Update `configs/waypoints.yaml` with poses recorded in your restaurant map.
 
 ## Documentation
 
@@ -190,7 +153,6 @@ Update `configs/waypoints.yaml` with poses recorded in your restaurant map.
 | Database     | [docs/database.md](docs/database.md)         |
 | Interfaces   | [docs/interfaces.md](docs/interfaces.md)     |
 | Navigation   | [docs/navigation.md](docs/navigation.md)     |
-| Nav setup (local) | `docs/navigation_waypoints_guide.md` (gitignored) |
 | Speech       | [docs/speech.md](docs/speech.md)             |
 | Task Manager | [docs/task_manager.md](docs/task_manager.md) |
 | Vision       | [docs/vision.md](docs/vision.md)             |

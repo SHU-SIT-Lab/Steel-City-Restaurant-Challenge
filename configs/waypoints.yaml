@@ -5,37 +5,22 @@ entrance:
   x: 0.0
   y: 0.0
   yaw: 0.0
-
 barista:
-  x: 1.0
+  x: 0.0
   y: 0.0
-  yaw: 1.57
-
+  yaw: 0.0
 table_1:
-  x: 2.0
-  y: 1.0
-  yaw: 3.14
-
+  x: 0.3859
+  y: -0.1706
+  yaw: 0.4932
 table_2:
-  x: 2.0
-  y: 2.0
-  yaw: 3.14
-
+  x: 0.3859
+  y: -0.1706
+  yaw: 0.4932
 table_3:
-  x: 2.0
-  y: 3.0
-  yaw: 3.14
-
-table_4:
-  x: 2.0
-  y: 4.0
-  yaw: 3.14
-
-table_5:
-  x: 2.0
-  y: 5.0
-  yaw: 3.14
-
+  x: 0.7038
+  y: -1.6052
+  yaw: 1.0427
 docking_station:
   x: 0.0
   y: 0.0

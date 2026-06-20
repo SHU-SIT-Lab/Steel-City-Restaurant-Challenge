@@ -1,20 +1,179 @@
 #!/usr/bin/env python3
-"""Graphical helper for recording waypoints and teleoperating the robot."""
+"""Graphical waypoint helper: camera, POI management, teleop, and navigation."""
 
 from __future__ import annotations
 
 import argparse
+import math
+import threading
+from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-import tkinter as tk
-from tkinter import filedialog, messagebox, simpledialog, ttk
+from typing import Callable, Optional, Tuple
 
 import cv2
 import rclpy
+import tkinter as tk
+from cv_bridge import CvBridge
+from geometry_msgs.msg import PoseWithCovarianceStamped, TwistStamped
 from PIL import Image, ImageTk
+from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
+from sensor_msgs.msg import Image as RosImage
+from tkinter import filedialog, messagebox, simpledialog, ttk
+from turtlebot4_steel_city_competition.srv import NavigateToWaypoint
 
-from ros_bridge import HelperRosBridge, start_ros_spin
 from waypoint_store import default_waypoints_path, load_waypoints, save_waypoints
+
+CAMERA_TOPIC = "/oakd/rgb/preview/image_raw"
+AMCL_POSE_TOPIC = "/amcl_pose"
+SLAM_POSE_TOPIC = "/pose"
+AMCL_POSE_QOS = QoSProfile(
+    depth=10,
+    reliability=ReliabilityPolicy.RELIABLE,
+    durability=DurabilityPolicy.TRANSIENT_LOCAL,
+)
+CMD_VEL_TOPIC = "/cmd_vel"
+NAV_SERVICE = "/navigation/navigate_to_waypoint"
+
+
+@dataclass
+class RobotPose:
+    x: float
+    y: float
+    yaw: float
+
+
+def quaternion_to_yaw(qx: float, qy: float, qz: float, qw: float) -> float:
+    return math.atan2(2.0 * (qw * qz + qx * qy), 1.0 - 2.0 * (qy * qy + qz * qz))
+
+
+class HelperRosBridge(Node):
+    """ROS I/O for the waypoint GUI: pose, camera, teleop, navigation service."""
+
+    def __init__(self) -> None:
+        super().__init__("waypoint_recorder_bridge")
+        self._bridge = CvBridge()
+        self._camera_enabled = False
+        self._latest_frame = None
+        self._latest_pose: Optional[RobotPose] = None
+        self._pose_received = False
+        self._pose_source: Optional[str] = None
+        self._nav_client = self.create_client(NavigateToWaypoint, NAV_SERVICE)
+        self._cmd_vel_pub = self.create_publisher(TwistStamped, CMD_VEL_TOPIC, 10)
+        self._camera_sub = None
+        self.create_subscription(
+            PoseWithCovarianceStamped,
+            AMCL_POSE_TOPIC,
+            self._amcl_pose_callback,
+            AMCL_POSE_QOS,
+        )
+        self.create_subscription(
+            PoseWithCovarianceStamped,
+            SLAM_POSE_TOPIC,
+            self._slam_pose_callback,
+            10,
+        )
+
+    def _update_pose(self, msg: PoseWithCovarianceStamped, source: str) -> None:
+        orientation = msg.pose.pose.orientation
+        self._latest_pose = RobotPose(
+            x=msg.pose.pose.position.x,
+            y=msg.pose.pose.position.y,
+            yaw=quaternion_to_yaw(
+                orientation.x,
+                orientation.y,
+                orientation.z,
+                orientation.w,
+            ),
+        )
+        self._pose_received = True
+        self._pose_source = source
+
+    def _amcl_pose_callback(self, msg: PoseWithCovarianceStamped) -> None:
+        self._update_pose(msg, "AMCL (/amcl_pose)")
+
+    def _slam_pose_callback(self, msg: PoseWithCovarianceStamped) -> None:
+        self._update_pose(msg, "SLAM (/pose)")
+
+    def _camera_callback(self, msg: RosImage) -> None:
+        if not self._camera_enabled:
+            return
+        try:
+            self._latest_frame = self._bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+        except Exception as exc:
+            self.get_logger().warn(f"Camera conversion failed: {exc}")
+
+    def set_camera_enabled(self, enabled: bool) -> None:
+        self._camera_enabled = enabled
+        if enabled and self._camera_sub is None:
+            self._camera_sub = self.create_subscription(
+                RosImage,
+                CAMERA_TOPIC,
+                self._camera_callback,
+                10,
+            )
+        if not enabled:
+            self._latest_frame = None
+
+    def get_latest_frame(self):
+        return self._latest_frame
+
+    def get_current_pose(self) -> Optional[RobotPose]:
+        return self._latest_pose
+
+    def has_pose(self) -> bool:
+        return self._pose_received and self._latest_pose is not None
+
+    def get_pose_source(self) -> Optional[str]:
+        return self._pose_source
+
+    def navigation_service_available(self) -> bool:
+        return self._nav_client.service_is_ready()
+
+    def wait_for_navigation_service(self, timeout_sec: float = 2.0) -> bool:
+        return self._nav_client.wait_for_service(timeout_sec=timeout_sec)
+
+    def navigate_to(self, destination: str) -> Tuple[bool, str]:
+        if not self.wait_for_navigation_service(timeout_sec=5.0):
+            return False, "Navigation service unavailable."
+
+        request = NavigateToWaypoint.Request()
+        request.destination = destination
+        future = self._nav_client.call_async(request)
+        rclpy.spin_until_future_complete(self, future)
+        if not future.done() or future.result() is None:
+            return False, "Navigation service call failed."
+
+        response = future.result()
+        return response.success, response.message
+
+    def publish_cmd_vel(self, linear_x: float, angular_z: float) -> None:
+        msg = TwistStamped()
+        msg.header.stamp = self.get_clock().now().to_msg()
+        msg.header.frame_id = "base_link"
+        msg.twist.linear.x = linear_x
+        msg.twist.angular.z = angular_z
+        self._cmd_vel_pub.publish(msg)
+
+    def stop(self) -> None:
+        self.publish_cmd_vel(0.0, 0.0)
+
+
+def start_ros_spin(
+    node: HelperRosBridge,
+    on_error: Optional[Callable[[Exception], None]] = None,
+) -> threading.Thread:
+    def _spin() -> None:
+        try:
+            rclpy.spin(node)
+        except Exception as exc:
+            if on_error:
+                on_error(exc)
+
+    thread = threading.Thread(target=_spin, daemon=True)
+    thread.start()
+    return thread
 
 
 class WaypointRecorderApp:
@@ -36,7 +195,12 @@ class WaypointRecorderApp:
         self._build_ui()
         self._refresh_waypoint_list()
         self._bind_keys()
+        self._ensure_keyboard_focus()
         self.root.after(100, self._update_loop)
+
+    def _ensure_keyboard_focus(self) -> None:
+        self.root.focus_force()
+        self.root.lift()
 
     def _build_ui(self) -> None:
         main = ttk.Frame(self.root, padding=8)
@@ -83,7 +247,8 @@ class WaypointRecorderApp:
         poi_frame.columnconfigure(0, weight=1)
         ttk.Label(path_row, text="Waypoints file:").grid(row=0, column=0, sticky="w")
         self.path_var = tk.StringVar(value=str(self.waypoints_path))
-        ttk.Entry(path_row, textvariable=self.path_var).grid(row=1, column=0, sticky="ew", pady=(2, 0))
+        self.path_entry = ttk.Entry(path_row, textvariable=self.path_var)
+        self.path_entry.grid(row=1, column=0, sticky="ew", pady=(2, 0))
         ttk.Button(path_row, text="Browse", command=self._browse_waypoints).grid(row=1, column=1, padx=(4, 0))
         path_row.columnconfigure(0, weight=1)
 
@@ -114,15 +279,23 @@ class WaypointRecorderApp:
 
         teleop_frame = ttk.LabelFrame(right, text="Manual teleop", padding=6)
         teleop_frame.grid(row=2, column=0, sticky="ew", pady=(8, 0))
+        self.teleop_frame = teleop_frame
         self.speed_var = tk.StringVar(value=self._speed_label())
         ttk.Label(teleop_frame, textvariable=self.speed_var).grid(row=0, column=0, sticky="w")
+        self.focus_banner = ttk.Label(
+            teleop_frame,
+            text="Click here for keyboard focus",
+            cursor="hand2",
+            relief="ridge",
+            padding=4,
+        )
+        self.focus_banner.grid(row=1, column=0, sticky="ew", pady=(6, 0))
         help_text = (
             "Arrow keys: drive\n"
             "Page Up / Page Down: speed\n"
-            "Space: stop\n"
-            "Click this window to focus keys"
+            "Space: stop"
         )
-        ttk.Label(teleop_frame, text=help_text, justify="left").grid(row=1, column=0, sticky="w", pady=(6, 0))
+        ttk.Label(teleop_frame, text=help_text, justify="left").grid(row=2, column=0, sticky="w", pady=(6, 0))
 
         status_frame = ttk.LabelFrame(right, text="Status", padding=6)
         status_frame.grid(row=3, column=0, sticky="ew", pady=(8, 0))
@@ -135,15 +308,24 @@ class WaypointRecorderApp:
         return f"Speed: linear={self.linear_speed:.2f} m/s, angular={self.angular_speed:.2f} rad/s"
 
     def _bind_keys(self) -> None:
-        for sequence in (
-            "<Up>", "<Down>", "<Left>", "<Right>",
-            "<KeyRelease-Up>", "<KeyRelease-Down>",
-            "<KeyRelease-Left>", "<KeyRelease-Right>",
-            "<Prior>", "<Next>", "<space>",
-        ):
+        sequences = (
+            "<KeyPress-Up>", "<KeyPress-Down>", "<KeyPress-Left>", "<KeyPress-Right>",
+            "<KeyRelease-Up>", "<KeyRelease-Down>", "<KeyRelease-Left>", "<KeyRelease-Right>",
+            "<KeyPress-Prior>", "<KeyPress-Next>", "<KeyPress-space>",
+        )
+        for sequence in sequences:
             self.root.bind_all(sequence, self._on_key)
+        self.focus_banner.bind("<Button-1>", lambda _e: self._ensure_keyboard_focus())
+        self.root.bind("<Map>", lambda _e: self._ensure_keyboard_focus())
 
-    def _on_key(self, event: tk.Event) -> None:
+    def _is_typing_in_entry(self, event: tk.Event) -> bool:
+        widget = event.widget
+        return widget is self.path_entry or widget.winfo_class() in {"Entry", "TEntry"}
+
+    def _on_key(self, event: tk.Event) -> Optional[str]:
+        if self._is_typing_in_entry(event):
+            return None
+
         key = event.keysym
         if event.type == tk.EventType.KeyPress:
             if key in {"Up", "Down", "Left", "Right"}:
@@ -157,6 +339,7 @@ class WaypointRecorderApp:
             self._pressed_keys.discard(key)
             if not self._pressed_keys:
                 self.ros.stop()
+        return "break"
 
     def _adjust_speed(self, increase: bool) -> None:
         step_linear = 0.05
@@ -182,6 +365,8 @@ class WaypointRecorderApp:
             angular -= self.angular_speed
         if linear or angular:
             self.ros.publish_cmd_vel(linear, angular)
+        elif not self._pressed_keys:
+            self.ros.stop()
 
     def _toggle_camera(self) -> None:
         self.ros.set_camera_enabled(self.camera_enabled.get())
@@ -236,7 +421,7 @@ class WaypointRecorderApp:
             return
         pose = self.ros.get_current_pose()
         if pose is None:
-            messagebox.showerror("Save pose", "No AMCL pose available.")
+            messagebox.showerror("Save pose", "No pose available. Is localization running?")
             return
         name = self.poi_list.get(selection[0])
         self.waypoints[name] = {"x": pose.x, "y": pose.y, "yaw": pose.yaw}
@@ -259,7 +444,7 @@ class WaypointRecorderApp:
             return
         pose = self.ros.get_current_pose()
         if pose is None:
-            messagebox.showerror("Add point", "No AMCL pose available.")
+            messagebox.showerror("Add point", "No pose available. Is localization running?")
             return
         self.waypoints[name] = {"x": pose.x, "y": pose.y, "yaw": pose.yaw}
         save_waypoints(self.waypoints_path, self.waypoints)
@@ -300,13 +485,28 @@ class WaypointRecorderApp:
         pose_ok = self.ros.has_pose()
         nav_ok = self.ros.navigation_service_available()
         pose = self.ros.get_current_pose()
+        pose_source = self.ros.get_pose_source() or "missing"
         pose_text = "unknown"
         if pose is not None:
             pose_text = f"x={pose.x:.2f}, y={pose.y:.2f}, yaw={pose.yaw:.2f}"
-        self.status_var.set(
-            f"AMCL pose: {'OK' if pose_ok else 'missing'} ({pose_text})\n"
-            f"Navigation service: {'ready' if nav_ok else 'waiting'}"
-        )
+
+        teleop_text = "idle"
+        if self._pressed_keys:
+            teleop_text = "publishing TwistStamped"
+
+        camera_text = "on" if self.camera_enabled.get() and self.ros.get_latest_frame() is not None else "waiting"
+
+        lines = [
+            f"Pose: {'OK' if pose_ok else 'missing'} [{pose_source}] ({pose_text})",
+            f"Navigation service: {'ready' if nav_ok else 'waiting'}",
+            f"Teleop: {teleop_text}",
+            f"Camera: {camera_text}",
+        ]
+        if not pose_ok:
+            lines.append("Hint: start localization on saved map (competition) or SLAM (mapping)")
+        if not nav_ok:
+            lines.append("Hint: launch navigation_server after Nav2 is up")
+        self.status_var.set("\n".join(lines))
 
     def _update_camera(self) -> None:
         if not self.camera_enabled.get():

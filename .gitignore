@@ -312,7 +312,12 @@ scripts/speech/orders.json
 
 # Navigation helper outputs (local only)
 docs/navigation_waypoints_guide.md
+docs/TEAM_LEAD_INTEGRATION_GUIDE.md
 robot-images/
+
+# Scratch map saves (canonical map lives in maps/)
+maps/*.pgm
+!maps/README.md
 
 # Firebase service-account keys — never commit these (both Admin SDK keys match)
 **/*firebase-adminsdk*.json

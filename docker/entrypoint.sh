@@ -4,6 +4,7 @@ set -eo pipefail
 TEMPLATE="/etc/turtlebot4/setup.bash.template"
 SETUP="/etc/turtlebot4/setup.bash"
 ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
+NAV_ENV="/root/docker-ws/docker/nav.env"
 
 TB4_PACKAGES=(
     ros-jazzy-turtlebot4-desktop
@@ -49,10 +50,12 @@ print_startup_confirmation() {
         fi
     done
     echo ""
-    echo "ROS 2 Jazzy ready."
-    echo "  ROS_DISCOVERY_SERVER=${ROS_DISCOVERY_SERVER}"
-    echo "  Test connectivity: ros2 topic list   (run twice if the list looks incomplete)"
-    echo ""
+	echo "ROS 2 Jazzy ready."
+	echo "  ROS_DISCOVERY_SERVER=${ROS_DISCOVERY_SERVER}"
+	echo "  MAP_FILE=${MAP_FILE:-/root/docker-ws/maps/restaurant.yaml}"
+	echo "  Test connectivity: ros2 topic list   (run twice if the list looks incomplete)"
+	echo "  Navigation guide:  docs/navigation.md"
+	echo ""
 }
 
 if [[ -z "${ROBOT_IP:-}" ]]; then
@@ -74,8 +77,20 @@ sed \
     -e "s/__ROS_DOMAIN_ID__/${ROS_DOMAIN_ID}/g" \
     "$TEMPLATE" > "$SETUP"
 
+if ! grep -q "${ROBOT_IP}:11811" "$SETUP"; then
+    echo "[WARN] /etc/turtlebot4/setup.bash does not contain ROBOT_IP=${ROBOT_IP}." >&2
+    echo "       Recreate the container with ./docker/run_container.sh ${ROBOT_IP}" >&2
+fi
+
 # shellcheck disable=SC1091
 source "$SETUP"
+
+if [[ -f "$NAV_ENV" ]]; then
+	# shellcheck disable=SC1091
+	set -a
+	source "$NAV_ENV"
+	set +a
+fi
 
 ros2 daemon stop >/dev/null 2>&1 || true
 ros2 daemon start

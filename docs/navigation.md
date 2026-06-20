@@ -1,183 +1,176 @@
 # Navigation
 
-Competition navigation uses the **navigation bridge** (`navigation_server.py`) and `RestaurantNavigator` (TurtleBot4 Navigator + Nav2) with named poses in [`configs/waypoints.yaml`](../configs/waypoints.yaml).
+You own **map usage**, **waypoints**, and **navigation readiness** for the Steel City Restaurant Challenge. Navigation runs on your PC inside Docker and talks to the TurtleBot4 over the discovery server. The robot provides sensors and movement; Docker runs localization, Nav2, and the competition navigation server.
 
-For full setup steps, GUI usage, and troubleshooting, see the local operator guide [`docs/navigation_waypoints_guide.md`](navigation_waypoints_guide.md) (gitignored — create it locally from the template in the repo or copy from a teammate).
+## What runs where
 
-## Prerequisites
+| Component | Where | Your role |
+| --- | --- | --- |
+| Robot bringup | TurtleBot4 RPi | Ensure the robot is powered, on the network, and publishing lidar and odometry |
+| Saved map | `maps/restaurant.yaml` + `.pgm` | Use the team map during competition — do not rebuild it on the day |
+| Localization (AMCL) | Docker on PC | Load the saved map so the robot knows where it is |
+| Nav2 | Docker on PC | Plan paths on that map |
+| Navigation server | Docker on PC | Turn waypoint names into Nav2 goals for the rest of the team |
+| Waypoints | `configs/waypoints.yaml` | Named poses the robot navigates to |
+| Waypoint GUI | `scripts/nav/record_waypoints.py` | Drive, record, and test points of interest |
 
-On the **TurtleBot4 Raspberry Pi**:
+```mermaid
+flowchart TB
+  subgraph Robot["TurtleBot4"]
+    Sensors["lidar camera odometry"]
+  end
 
-1. Robot bringup: `ros2 launch turtlebot4_bringup robot.launch.py`
-2. Localization: `ros2 launch turtlebot4_navigation localization.launch.py map:=<your_map>.yaml`
-3. Nav2: `ros2 launch turtlebot4_navigation nav2.launch.py`
+  subgraph DockerPC["Docker on PC"]
+    Map["maps/restaurant.yaml"]
+    Loc[Localization AMCL]
+    Nav2[Nav2]
+    Server[Navigation server]
+    GUI[Waypoint GUI]
+    Loc --> Map
+    Nav2 --> Loc
+    Server --> Nav2
+    GUI --> Waypoints[configs/waypoints.yaml]
+    GUI --> Server
+  end
 
-On the **dev machine / Docker container**, discovery must point at the robot RPi (handled automatically by `./docker/run_container.sh`).
-
-## Waypoints
-
-Edit [`configs/waypoints.yaml`](../configs/waypoints.yaml) after mapping the arena. Keys used by behaviors:
-
-| Key               | Used for                    |
-| ----------------- | --------------------------- |
-| `entrance`        | Customer check / queue      |
-| `barista`         | Order pickup                |
-| `table_1`…`table_5` | Table service            |
-| `docking_station` | Dock approach pose + dock   |
-
-Each entry has `x`, `y`, `yaw` in the **map** frame.
-
-Use `scripts/helper/waypoint_recorder.py` to record poses interactively (see the local guide above).
-
-## Navigation service
-
-The bridge exposes:
-
-- **Service:** `/navigation/navigate_to_waypoint`
-- **Type:** `turtlebot4_steel_city_competition/srv/NavigateToWaypoint`
-- **Request:** `destination` (waypoint name from YAML)
-- **Response:** `success`, `message`
-
-Launch the server:
-
-```bash
-ros2 launch turtlebot4_steel_city_competition navigation_server.launch.py
+  Sensors <-->|discovery server| Loc
 ```
 
-Test:
+## Before competition — verify once
 
-```bash
-ros2 service call /navigation/navigate_to_waypoint \
-  turtlebot4_steel_city_competition/srv/NavigateToWaypoint \
-  "{destination: 'table_1'}"
-```
+Do this before challenge day so you are not debugging the map under pressure.
+
+1. **Check the map** — Open `maps/restaurant.yaml` and confirm it matches the current arena layout. Walls, doors, and table areas should line up with the physical space. If the venue changed, the map must be updated before competition.
+
+2. **Check waypoint names** — [`configs/waypoints.yaml`](../configs/waypoints.yaml) must include the keys other subsystems expect:
+
+   | Name | Used for |
+   | --- | --- |
+   | `entrance` | Customer check / queue |
+   | `barista` | Order pickup |
+   | `table_1` … `table_5` | Table service |
+   | `docking_station` | Dock approach and charging |
+
+3. **Open the waypoint GUI** — Inside Docker (with the workspace built and sourced), launch the waypoint helper. Confirm the camera feed appears when the robot is running. Each panel is described in [Waypoint GUI guide](#waypoint-gui-guide) below.
+
+4. **Walk through every point of interest** — For each waypoint, select it in the GUI and press **Go**. The robot should reach the pose autonomously. If it stops short or fails, select the point, drive the robot to the correct spot with arrow keys, and **Save current pose**.
+
+5. **Confirm the navigation server** — The status panel should show the navigation service as **ready** when the competition navigation server or full stack is running. Other team members depend on this service.
+
+## Competition day workflow
+
+Follow these steps in order each time you set up for a run.
+
+### 1. Connect to the robot
+
+Start Docker with the TurtleBot4 IP (`192.168.4.239`). Confirm ROS can see robot topics — you should see lidar and odometry, not an empty graph. If the topic list is nearly empty, recreate the container with the correct robot IP.
+
+### 2. Start robot bringup on the TurtleBot4
+
+On the robot, start base drivers so camera, lidar, and movement are available. Leave this running for the whole session.
+
+### 3. Load the saved map (localization)
+
+Start localization in Docker so AMCL uses `maps/restaurant.yaml`. This publishes `/amcl_pose` — the robot’s estimated position on the map. Localization replaces SLAM; you are **not** building a new map on competition day.
+
+### 4. Start Nav2
+
+Start the Nav2 stack in a separate Docker terminal. Nav2 needs a valid `/amcl_pose` and the map loaded before it can plan paths.
+
+### 5. Set the initial pose
+
+Open RViz and use **2D Pose Estimate** to place the robot at its real location on the map. This step is required every time you restart localization. Check that the laser scan overlay aligns with walls on the map. If the scan is rotated or shifted, adjust the pose until AMCL converges.
+
+### 6. Start the navigation server
+
+Launch the competition navigation server, or the full `steel_city` stack if the whole team is running together. The navigation server exposes `/navigation/navigate_to_waypoint`, which maps waypoint names from the YAML file to Nav2 goals.
+
+### 7. Validate with the waypoint GUI
+
+Use the GUI to drive manually, fine-tune poses, and confirm **Go** reaches each point. Do this before handing control to other subsystems.
+
+## Using the map
+
+The **map frame** is the fixed coordinate system of the saved occupancy grid. All waypoint `x`, `y`, and `yaw` values are in this frame.
+
+**Why initial pose matters:** AMCL starts with uncertainty about where the robot is. The 2D Pose Estimate in RViz gives it a starting guess. Without a correct initial pose, navigation goals will fail even if the map and waypoints are correct.
+
+**When to re-estimate pose:** After restarting localization, after someone moves the robot by hand, or if the laser scan no longer aligns with the map.
+
+**Do not SLAM during competition** unless the venue layout has changed and the team decides to rebuild the map beforehand.
+
+## Waypoint GUI guide
+
+Launch from the repo root inside Docker after sourcing the workspace:
+
+`python3 scripts/nav/record_waypoints.py`
+
+### Robot camera
+
+Shows a live preview from the robot camera. Use the checkbox to enable or disable the stream. **Capture image** saves a PNG to `robot-images/` for visual reference at each location.
+
+### Points of interest
+
+Lists every entry in `configs/waypoints.yaml`.
+
+- **Add** — Create a new named point from the robot’s current pose.
+- **Save current pose** — Overwrite the selected point with the robot’s current pose (use after fine-tuning with teleop).
+- **Delete** — Remove the selected point.
+- **Reload** — Re-read the YAML file from disk.
+
+Select a point to see its `x`, `y`, and `yaw` below the list.
+
+### Navigate
+
+Pick a waypoint from the dropdown and press **Go** to send the robot there through the navigation server. The result message appears below the button.
+
+### Manual teleop
+
+Drive the robot with the keyboard when the GUI window has focus.
+
+| Key | Action |
+| --- | --- |
+| Up / Down | Forward / backward |
+| Left / Right | Turn left / right |
+| Page Up / Page Down | Increase / decrease speed |
+| Space | Stop |
+
+Click **Click here for keyboard focus** if arrow keys stop responding — child widgets can steal focus from the window.
+
+### Status
+
+Shows pose source (AMCL or SLAM), navigation service state, teleop activity, and camera status. Hints appear when pose or the navigation server is missing. Use this panel as a live checklist before a run.
+
+## For other subsystems
+
+Other team members should not call Nav2 directly. They use `NavigationClient` (wired in `turtlebot4_run.py` as `ctx["navigation"]`) or the `/navigation/navigate_to_waypoint` service. Your job is to keep the map loaded, localization stable, Nav2 running, waypoints accurate, and the navigation server available.
 
 When `destination` is `docking_station`, the robot navigates to the approach pose and then docks.
 
-## Navigating from another script
+## Troubleshooting
 
-When your code runs inside the competition stack, navigation is already wired. You do not call Nav2 or TurtleBot4 APIs directly — you call the shared navigation object, which forwards the request to `/navigation/navigate_to_waypoint`.
+| Symptom | Likely cause | What to do |
+| --- | --- | --- |
+| Battery topic works, robot won't move | ROS 2 Jazzy needs **stamped** velocity on `/cmd_vel`; robot bringup may be missing | Ensure robot bringup is running on the TurtleBot4. The waypoint GUI now publishes `TwistStamped`. For manual keyboard testing use `ros2 run teleop_twist_keyboard teleop_twist_keyboard --ros-args -p stamped:=true` (not `rosrun`) |
+| Almost no ROS topics visible | Discovery server misconfigured | Recreate Docker with the correct TurtleBot4 IP |
+| Pose missing in GUI | Localization or SLAM not publishing yet | For competition: load the saved map with localization. For mapping: run SLAM and wait until `/pose` appears in status |
+| Navigation service waiting | SLAM/localization do not start the competition nav server | Launch the navigation server separately after Nav2 is running |
+| Running SLAM on competition day | Wrong mode for challenge runs | Switch to localization on `maps/restaurant.yaml` — do not SLAM during competition |
+| Pose available but Nav2 fails | Initial pose not set or wrong | Re-estimate pose in RViz until the laser scan aligns with the map |
+| **Go** fails for one waypoint | Stale or wrong coordinates | Drive there with teleop, **Save current pose**, and retry |
+| Arrow keys do nothing | GUI lost keyboard focus | Click the focus banner in the teleop section; keep the GUI window active |
+| GUI does not open | No X11 display in Docker | Use `./docker/run_container.sh` from a graphical session |
+| Laser scan misaligned with map | AMCL not converged or outdated map | Re-set initial pose; update the map if the venue layout changed |
 
-### How it is wired
+## Files reference
 
-[`turtlebot4_run.py`](../turtlebot4_ws/src/turtlebot4_steel_city_competition/src/turtlebot4_run.py) creates a `NavigationClient` and places it in the behavior context:
+| Path | Role |
+| --- | --- |
+| `maps/restaurant.yaml` | Competition map metadata |
+| `maps/restaurant.pgm` | Occupancy grid image |
+| `configs/waypoints.yaml` | Named poses for behaviors |
+| `scripts/nav/record_waypoints.py` | Waypoint GUI helper |
+| `scripts/nav/waypoint_store.py` | YAML load/save for waypoints |
+| `docker/nav.env` | Default robot IP and map path |
 
-```python
-coordinator.ctx["navigation"] = navigator
-```
-
-[`steel_city.launch.py`](../turtlebot4_ws/src/turtlebot4_steel_city_competition/launch/steel_city.launch.py) starts both the navigation server and the behavior coordinator, so behaviors can navigate as long as Nav2 is active on the robot.
-
-### Pattern for competition behaviors
-
-Follow the same approach as [`take_order_behavior.py`](../turtlebot4_ws/src/turtlebot4_steel_city_competition/src/behaviors/take_order_behavior.py):
-
-1. Read `navigation` from `ctx` (a dict passed into `plan()`).
-2. Call `navigate_to("<waypoint_name>")` with a key from [`configs/waypoints.yaml`](../configs/waypoints.yaml).
-3. Check the returned `bool` before continuing the rest of the behavior.
-
-### Example: `check_customer_behavior.py` — TODO 1
-
-[`check_customer_behavior.py`](../turtlebot4_ws/src/turtlebot4_steel_city_competition/src/behaviors/check_customer_behavior.py) has this placeholder:
-
-```python
-# TODO 1: Navigation
-# Move robot to entrance.
-```
-
-To implement it, bind navigation from `ctx` and drive to the `entrance` waypoint:
-
-```python
-def plan(self, ctx: Any) -> None:
-    navigation = ctx.get("navigation") if isinstance(ctx, dict) else None
-
-    if navigation is None:
-        print("[CHECK_CUSTOMER] navigation not wired; skipping move to entrance.")
-        return
-
-    if not navigation.navigate_to("entrance"):
-        print("[CHECK_CUSTOMER] could not navigate to entrance.")
-        return
-
-    # TODO 2: Vision — check camera for new customers.
-    # TODO 3: Database — update if a new customer is detected.
-    ...
-```
-
-`navigate_to("entrance")` blocks until the robot reaches the pose or navigation fails. On success it returns `True`; on failure (unknown waypoint, timeout, Nav2 error) it returns `False`.
-
-Other aliases work too: `go_to()`, `go_to_location()`, `send_goal()`, and `navigate()`.
-
-### Waypoint names to use
-
-| Task | Typical `destination` |
-|------|------------------------|
-| Check customers at the door | `entrance` |
-| Pick up an order | `barista` |
-| Serve a table | `table_1` … `table_5` |
-| Return to charger | `docking_station` |
-
-### Standalone scripts (outside the behavior stack)
-
-If your script is not launched via `turtlebot4_run.py`, call the ROS service directly. The navigation server must be running first.
-
-**Python (blocking):**
-
-```python
-import rclpy
-from rclpy.node import Node
-from turtlebot4_steel_city_competition.srv import NavigateToWaypoint
-
-rclpy.init()
-node = Node("my_script_nav_client")
-client = node.create_client(NavigateToWaypoint, "/navigation/navigate_to_waypoint")
-client.wait_for_service()
-
-request = NavigateToWaypoint.Request()
-request.destination = "entrance"
-future = client.call_async(request)
-rclpy.spin_until_future_complete(node, future)
-response = future.result()
-print(response.success, response.message)
-```
-
-**Shell:**
-
-```bash
-ros2 service call /navigation/navigate_to_waypoint \
-  turtlebot4_steel_city_competition/srv/NavigateToWaypoint \
-  "{destination: 'entrance'}"
-```
-
-[`scripts/speech/tools.py`](../scripts/speech/tools.py) uses the same service pattern for LLM-driven `navigate_to(destination)` calls.
-
-## Mapping
-
-From Docker (sync SLAM on PC recommended):
-
-```bash
-ros2 launch turtlebot4_navigation slam.launch.py
-# Drive the robot, then save:
-ros2 run nav2_map_server map_saver_cli -f restaurant_map
-```
-
-## Competition stack
-
-Behaviors in `turtlebot4_run.py` use `NavigationClient`, which calls the navigation service. Launch the full stack (navigation server + behaviors):
-
-```bash
-ros2 launch turtlebot4_steel_city_competition steel_city.launch.py
-```
-
-Or:
-
-```bash
-ros2 launch turtlebot4_steel_city_competition restaurant_bringup.launch.py
-```
-
-## Verify
-
-```bash
-ros2 topic echo /amcl_pose
-ros2 service list | grep navigate
-```
+TurtleBot4 reference: [Navigation tutorial](https://turtlebot.github.io/turtlebot4-user-manual/tutorials/navigation.html)

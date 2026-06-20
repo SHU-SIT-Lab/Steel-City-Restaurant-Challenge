@@ -2,9 +2,15 @@
 
 ROS 2 workspace for the Steel City Restaurant Challenge. Only the competition package is built from source; TurtleBot4 upstream packages come from apt (`ros-jazzy-turtlebot4-*`) inside Docker.
 
+## Navigation
+
+**Start here:** [docs/navigation.md](../docs/navigation.md)
+
+Navigation (localization, Nav2, waypoints) runs from Docker on the PC. The TurtleBot4 only needs robot bringup. The navigation guide explains the competition-day workflow and how to use the waypoint GUI.
+
 ## Build
 
-Inside the Docker container (after `./docker/run_container.sh`):
+Inside the Docker container (after `./docker/run_container.sh <robot-ip>`):
 
 ```bash
 source /etc/turtlebot4/setup.bash
@@ -13,10 +19,10 @@ colcon build --symlink-install
 source install/setup.bash
 ```
 
-## Run
+## Run (after Nav2 + localization are up)
 
-```bash
-ros2 launch turtlebot4_steel_city_competition steel_city.launch.py
-```
+On the robot: start robot bringup.
 
-Ensure Nav2 and localization are running on the robot before navigation behaviors execute.
+From Docker: follow [docs/navigation.md](../docs/navigation.md) to load the saved map, start Nav2, set initial pose, and launch the competition stack.
+
+Ensure Nav2 and localization are running before navigation behaviors execute.

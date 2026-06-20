@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import os
 from pathlib import Path
 from typing import Any, Dict
 
@@ -9,6 +10,9 @@ import yaml
 
 
 def default_waypoints_path() -> Path:
+    env_path = os.environ.get("WAYPOINTS_FILE")
+    if env_path:
+        return Path(env_path)
     repo_root = Path(__file__).resolve().parents[2]
     return repo_root / "configs" / "waypoints.yaml"
 
