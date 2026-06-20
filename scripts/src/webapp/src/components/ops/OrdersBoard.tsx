@@ -17,9 +17,14 @@ const columns: OrderStatus[] = [
   "delivered",
 ];
 
-// Cap cards per column so the board fits its window without scrolling; older ones
-// (typically a growing "delivered" history) collapse into a "+N more" line.
+// Cap cards per column so the board fits its window without scrolling; the rest
+// open on demand in a per-column modal via the "+N more" control.
 const MAX_VISIBLE_ORDERS = 2;
+const MINIMIZED_STORAGE_KEY = "steelCity.ordersBoard.min";
+
+function capitalize(value: string): string {
+  return value.charAt(0).toUpperCase() + value.slice(1);
+}
 
 interface OrdersBoardProps {
   role: Role;
@@ -43,12 +48,35 @@ export function OrdersBoard({
   const [createOpen, setCreateOpen] = useState(false);
   const [selectedTableId, setSelectedTableId] = useState(tables[0]?.id ?? "");
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
+  const [columnDetail, setColumnDetail] = useState<OrderStatus | null>(null);
+  const [minimized, setMinimized] = useState<boolean>(() => {
+    if (typeof window === "undefined") {
+      return false;
+    }
+    return window.localStorage.getItem(MINIMIZED_STORAGE_KEY) === "1";
+  });
   const { selectedItems, setSelectedItems, notes, setNotes, toggleItem, changeQuantity, items, itemCount, reset } =
     useOrderDraft(menu);
   const availableTables = useMemo(
     () => tables.filter((table) => table.status !== "unavailable"),
     [tables],
   );
+  const activeOrderCount = orders.filter(
+    (order) => !["delivered", "cancelled", "failed"].includes(order.status),
+  ).length;
+  const detailOrders = columnDetail ? orders.filter((order) => order.status === columnDetail) : [];
+
+  function toggleMinimized() {
+    setMinimized((previous) => {
+      const next = !previous;
+      try {
+        window.localStorage.setItem(MINIMIZED_STORAGE_KEY, next ? "1" : "0");
+      } catch {
+        /* ignore storage failures (private mode, etc.) */
+      }
+      return next;
+    });
+  }
 
   function openCreateOrder() {
     setSelectedTableId(availableTables[0]?.id ?? tables[0]?.id ?? "");
@@ -77,46 +105,78 @@ export function OrdersBoard({
     setActiveOrder(null);
   }
 
+  // Shared card used both inline (capped) and inside the per-column "see all" modal.
+  function renderOrderCard(order: Order, status: OrderStatus) {
+    const table = tables.find((candidate) => candidate.id === order.table_id);
+    const orderItems = normalizeOrderItems(order.items, menu);
+    const canAdvance = status === "ready" ? hasMinimumRole(role, "manager") : canUpdateOrders(role);
+
+    return (
+      <div className="order-card" key={order.id}>
+        <strong>{table ? `Table ${table.table_number}` : order.table_id}</strong>
+        <span>{orderItems.map((item) => `${item.quantity}x ${item.name}`).join(", ")}</span>
+        {status !== "delivered" ? (
+          <button
+            disabled={!canAdvance || saving}
+            onClick={() => {
+              setColumnDetail(null);
+              setActiveOrder(order);
+            }}
+          >
+            {status === "ready" ? "Request delivery" : "Advance"}
+          </button>
+        ) : null}
+      </div>
+    );
+  }
+
   return (
-    <section className="orders-board" aria-label="Orders board">
+    <section className={`orders-board${minimized ? " orders-board--min" : ""}`} aria-label="Orders board">
       <div className="panel__header">
         <div>
           <p className="eyebrow">Kitchen and delivery state</p>
           <h2>Orders Board</h2>
         </div>
-        <button disabled={!canUpdateOrders(role) || saving} onClick={openCreateOrder}>Create order</button>
+        <div className="orders-board__actions">
+          {minimized ? <span className="tag tag--live">{activeOrderCount} active</span> : null}
+          <button
+            className="button--ghost"
+            type="button"
+            aria-expanded={!minimized}
+            onClick={toggleMinimized}
+          >
+            {minimized ? "Expand" : "Minimise"}
+          </button>
+          <button disabled={!canUpdateOrders(role) || saving} onClick={openCreateOrder}>Create order</button>
+        </div>
       </div>
-      <div className="orders-columns">
-        {columns.map((status) => {
-          const columnOrders = orders.filter((order) => order.status === status);
-          const visible = columnOrders.slice(0, MAX_VISIBLE_ORDERS);
-          const hiddenCount = columnOrders.length - visible.length;
 
-          return (
-            <article className="order-column" key={status}>
-              <h3>{status.replace("_", " ")}</h3>
-              {visible.map((order) => {
-                const table = tables.find((candidate) => candidate.id === order.table_id);
-                const items = normalizeOrderItems(order.items, menu);
-                const canAdvance = status === "ready" ? hasMinimumRole(role, "manager") : canUpdateOrders(role);
+      {minimized ? null : (
+        <div className="orders-columns">
+          {columns.map((status) => {
+            const columnOrders = orders.filter((order) => order.status === status);
+            const visible = columnOrders.slice(0, MAX_VISIBLE_ORDERS);
+            const hiddenCount = columnOrders.length - visible.length;
 
-                return (
-                  <div className="order-card" key={order.id}>
-                    <strong>{table ? `Table ${table.table_number}` : order.table_id}</strong>
-                    <span>{items.map((item) => `${item.quantity}x ${item.name}`).join(", ")}</span>
-                    {status !== "delivered" ? (
-                      <button disabled={!canAdvance || saving} onClick={() => setActiveOrder(order)}>
-                        {status === "ready" ? "Request delivery" : "Advance"}
-                      </button>
-                    ) : null}
-                  </div>
-                );
-              })}
-              {hiddenCount > 0 ? <p className="order-column__more">+{hiddenCount} more</p> : null}
-            </article>
-          );
-        })}
-      </div>
+            return (
+              <article className="order-column" key={status}>
+                <h3>{status.replace("_", " ")}</h3>
+                {visible.map((order) => renderOrderCard(order, status))}
+                {hiddenCount > 0 ? (
+                  <button
+                    type="button"
+                    className="order-column__more"
+                    onClick={() => setColumnDetail(status)}
+                  >
+                    +{hiddenCount} more
+                  </button>
+                ) : null}
+              </article>
+            );
+          })}
+        </div>
+      )}
+
       <Modal eyebrow="Order builder" onClose={() => setCreateOpen(false)} open={createOpen} title="Create Order">
         <form className="form-stack" onSubmit={handleCreateOrder}>
           <div>
@@ -171,6 +231,28 @@ export function OrdersBoard({
           </div>
         </form>
       </Modal>
+
+      <Modal
+        eyebrow="Column detail"
+        onClose={() => setColumnDetail(null)}
+        open={columnDetail !== null}
+        title={
+          columnDetail
+            ? `${capitalize(columnDetail.replace("_", " "))} orders (${detailOrders.length})`
+            : "Orders"
+        }
+      >
+        {columnDetail ? (
+          detailOrders.length > 0 ? (
+            <div className="orders-detail-list">
+              {detailOrders.map((order) => renderOrderCard(order, columnDetail))}
+            </div>
+          ) : (
+            <p className="empty-state">No orders in this column.</p>
+          )
+        ) : null}
+      </Modal>
+
       <Modal
         eyebrow="Order lifecycle"
         onClose={() => setActiveOrder(null)}

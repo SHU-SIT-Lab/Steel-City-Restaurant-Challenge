@@ -753,10 +753,39 @@ dd {
 }
 
 .order-column__more {
-  padding: 0.1rem 0.2rem;
-  color: #8aa098;
+  width: 100%;
+  border: 1px dashed rgba(216, 169, 79, 0.4);
+  border-radius: 6px;
+  padding: 0.25rem 0.3rem;
+  color: #d8c08a;
+  background: rgba(216, 169, 79, 0.06);
   font-size: 0.72rem;
   font-weight: 700;
+  text-align: center;
+  cursor: pointer;
+}
+
+.order-column__more:hover:not(:disabled) {
+  border-color: rgba(216, 169, 79, 0.85);
+  background: rgba(216, 169, 79, 0.14);
+  transform: none;
+  box-shadow: none;
+}
+
+.orders-board__actions {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+}
+
+.orders-board--min .panel__header {
+  margin-bottom: 0;
+}
+
+.orders-detail-list {
+  display: grid;
+  gap: 0.6rem;
 }
 
 /* Tablet landscape (1024-1200): keep the fitted multi-column 100dvh layout, tighter. */
