@@ -2,6 +2,8 @@
 
 ROS 2 workspace for the Steel City Restaurant Challenge. Only the competition package is built from source; TurtleBot4 upstream packages come from apt (`ros-jazzy-turtlebot4-*`) inside Docker.
 
+> **Running from a Windows/WSL2 laptop?** Start with the operator runbook: [docs/OPERATIONS.md](../docs/OPERATIONS.md) — host setup, connecting to the robot over Wi-Fi, and the "ping works but ROS sees nothing" fix.
+
 ## Navigation
 
 **Start here:** [docs/navigation.md](../docs/navigation.md)
