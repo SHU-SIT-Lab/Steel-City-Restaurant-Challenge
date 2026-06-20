@@ -1,5 +1,8 @@
 # Active Inference reformulation of the waiter behaviors
 
+> For how this subsystem fits the whole robot architecture (layers, integration,
+> variants, status), see **[aif_architecture.md](aif_architecture.md)**.
+
 Reframe the `ReactiveCoordinator` (hand-coded `order × precondition`, argmax) as a
 **single active-inference agent** that selects actions by minimising expected
 free energy (EFE). The restaurant workflow becomes a generative model; the seven
