@@ -54,6 +54,25 @@ python scripts/aif/game_phases.py
 The agent completes the full six-phase cycle in 9 steps, scoring 1200/1200 (base):
 `GREET, GO_TABLE, TAKE_ORDER, GO_COUNTER, VERIFY, GO_TABLE, SERVE, GO_COUNTER, RETURN`.
 
+## V2 result — multi-customer + law-as-code
+
+```
+python scripts/aif/game_phases_multi.py
+```
+A precedence/fairness **law** (party size, wait time, busyness, accessibility)
+orders the waiting customers; **AIF serves each through all six phases**. The
+same law gives different orders as context changes:
+
+```
+quiet kitchen (fairness)      order: A -> C -> B    score 3800 (3x1200 + 200 bonus)
+slammed kitchen (throughput)  order: B -> A -> C    score 3800
+B flagged priority            order: B -> A -> C    score 3800
+```
+
+Busyness flips fairness↔throughput; an accessibility flag is a hard priority.
+Each served customer is a full 1200-point six-phase cycle, plus the rulebook's
+**+200 "serve multiple customers in a single run"** bonus.
+
 ## Run
 
 Linux/WSL (fast JAX XLA), deps in `scripts/aif/requirements.txt`:
