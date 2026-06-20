@@ -16,6 +16,7 @@ Full rationale and the behavior -> generative-model mapping: **[../../docs/aif_d
 | `aif_coordinator.py` | `AIFWaiter` EFE decision core (JAX pymdp) + `run_headless()` demo. |
 | `evaluate.py` | Multi-seed evaluation of the service task (success rate, steps). |
 | `epistemic_test.py` | Epistemic stress-test: does the agent *look when unsure*? |
+| `law_as_code.py` | Compile a precedence rule into the model (soft/hard) + precision knob. |
 | `requirements.txt` | `inferactively-pymdp` (JAX) + `jax[cpu]` + `numpy`. |
 
 ## Run the headless demo
@@ -68,6 +69,31 @@ penalty widens the band where the agent looks.
 
 Remaining gaps: still self-play (env dynamics = the agent's own B; only the
 observation noise was mismatched in the service eval), and no pytest unit tests.
+
+### Law as code — compile a rule, watch context reshape it
+`python scripts/aif/law_as_code.py` — the precedence/fairness rule "serve who
+waited longest" is compiled into the preferences **C**, then reshaped by party
+size, wait time, and how busy the kitchen is (context enters through C, not `if`
+branches):
+
+```
+  equal tables                          order: A, B   (arrival order)
+  B has the bigger party (2 vs 6)       order: B, A   (throughput)
+  A waited much longer (12 vs 3 min)    order: A, B   (fairness)
+  conflict (A waited longer, B bigger):
+     quiet kitchen  (busy=0)            order: A, B   (fairness holds)
+     slammed kitchen (busy=1)           order: B, A   (throughput wins)
+  A flagged priority/accessibility      order: A, B   (priority)
+  hard mask: B-before-A forbidden       order: A, B   (inviolable)
+```
+
+The standout: **busyness flips the same conflict** — quiet, fairness serves the
+longer-waiting table; slammed, throughput serves the bigger party. The law's
+strength is a **precision knob** (`fairness_lambda`) that crosses from throughput
+to fairness where the norm outweighs the efficiency gain. These are the
+`(C, E, B-mask)` seams from [the design doc](../../docs/aif_design.md): norms
+compiled into the generative model and conditioned on restaurant context, not
+bolted on as rules.
 
 ## Status
 **Validated end-to-end**: the JAX agent constructs, infers, and drives a table
