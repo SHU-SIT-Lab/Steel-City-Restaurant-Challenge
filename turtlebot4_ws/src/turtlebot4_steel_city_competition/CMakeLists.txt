@@ -13,6 +13,7 @@ find_package(ament_cmake REQUIRED)
 
 install(PROGRAMS
   src/turtlebot4_run.py
+  src/aif_run.py
   src/helpers/retrieve_camera.py
   src/helpers/retrieve_mic.py
   src/helpers/send_audio.py

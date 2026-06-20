@@ -45,9 +45,10 @@ pip install pytest
 ## Run the tests
 
 ```bash
-python3 -m pytest scripts/aif/test_e2e.py -q          # AIF: 15 tests (structural + full agent runs)
-python3 -m pytest scripts/reactive_sim/ -q            # reactive sim: 14 tests
-python3 -m pytest scripts/compare/test_compare.py -q  # the comparison
+python3 -m pytest scripts/aif/test_e2e.py -q             # AIF: 15 tests (structural + full agent runs)
+python3 -m pytest scripts/aif/test_ros_integration.py -q # AIF<->ROS wiring: 3 tests (headless)
+python3 -m pytest scripts/reactive_sim/ -q               # reactive sim: 14 tests
+python3 -m pytest scripts/compare/test_compare.py -q     # the comparison
 ```
 
 ## Drive the real TurtleBot4 (needs ROS 2 Jazzy)
@@ -61,6 +62,14 @@ in a Jazzy environment. Two ways, both reusing the same networking fixes:
 
 Either way, then `ros2 topic list` should show `/scan`, `/oakd/*`, `/battery_state`.
 If "ping works but ROS sees nothing", read [troubleshooting_dds_wsl.md](troubleshooting_dds_wsl.md).
+
+**Choose the brain:** the default launch runs the reactive coordinator. To drive
+with the **active-inference agent** instead (EFE selection over the same
+behaviors), set one env var:
+```bash
+AIF_COORDINATOR=1 ros2 launch turtlebot4_steel_city_competition steel_city.launch.py
+```
+See [aif_ros_integration.md](aif_ros_integration.md) (needs jax+pymdp in the ROS env).
 
 ## Where each piece lives (PRs, until merged to main)
 

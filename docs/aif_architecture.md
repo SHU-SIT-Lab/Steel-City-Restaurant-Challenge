@@ -136,12 +136,15 @@ untouched:
 unsure); law-as-code (soft `C` + hard `B-mask` + precision knob, reshaped by
 context); the 6 game phases (V1) and multi-customer law ordering (V2); all under
 partial (location-gated) observation; a Docker-free runtime (Docker, or native
-Jazzy in WSL Ubuntu 24.04).
+Jazzy in WSL Ubuntu 24.04); test suites (AIF 15 + reactive 14 + compare 2 +
+integration 3); the **ROS wiring** — `AIFCoordinator` is a drop-in for
+`ReactiveCoordinator` (`AIF_COORDINATOR=1`), its selector validated headless
+driving a table EMPTY→DELIVERED (see [aif_ros_integration.md](aif_ros_integration.md)).
 
-**Not done yet:** wiring the agent into `turtlebot4_run.py` as a live `rclpy`
-node (the ROS integration); grounding observations in the *actual* vision/speech
-topics; the full joint/interleaved multi-table POMDP; on-robot evaluation;
-pytest. The numeric preferences are first-pass.
+**Not done yet:** running the wired agent **on the actual robot** (needs a colcon
+build + the robot); grounding observations in the *live* vision/speech topics
+rather than the Firestore phase; the multi-customer law wired into the live node;
+the full joint/interleaved multi-table POMDP. The numeric preferences are first-pass.
 
 ## 8. Document map
 
