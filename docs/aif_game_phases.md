@@ -22,9 +22,29 @@ phases**, with preferences grounded in the **rulebook points**. Pure Python/JAX 
 
 The state is `(phase, location)`; phase-advancing actions only fire at the right
 station (GREET@entrance, TAKE_ORDER@table, VERIFY@counter, SERVE@table,
-RETURN@counter). The preference vector **C is the cumulative rulebook points**, so
-the EFE-minimising agent literally acts to maximise its expected competition
-score, and the correct Phase 1→6 order *emerges*.
+RETURN@counter). The correct Phase 1→6 order *emerges* from EFE minimisation.
+
+## Observations (location-gated, like PR #17)
+
+The agent does **not** see its state directly. There is one **noisy,
+location-gated** observation modality — `phase_evidence` ∈ {DETECTED, SEATED,
+ORDERED, VERIFIED, SERVED, STANDBY, **AMBIGUOUS**}:
+
+- at a phase's **station** the phase reads sharply (`build_A(sharp=0.9)`);
+- **off-station** it reads `AMBIGUOUS`.
+
+So the robot can only resolve a phase where it is observable (detect at the
+entrance, confirm the order at the table, check the tray at the counter, ...). The
+`GO_*` actions therefore earn **information gain** — the agent must *move to
+perceive*. This is the same epistemic structure as the PR #17 table model (an
+earlier version used a fully-observed identity likelihood, which made the
+epistemic term ~0; this restores it).
+
+**Preferences `C`** are a monotonic gradient over the phase observations with a
+**dominant terminal preference** for STANDBY, so the agent does not *farm* a
+high-scoring mid-phase observation under the finite horizon (re-observing VERIFIED
+forever would otherwise beat progressing through the AMBIGUOUS dip). The reported
+*score* still uses the rulebook points.
 
 ## V1 result
 
@@ -46,5 +66,6 @@ python scripts/aif/game_phases.py
 - This is the *decision core*. To drive the real TurtleBot4 it runs as an
   `rclpy` node inside a **ROS 2 Jazzy** environment (native Ubuntu 24.04, no
   Docker — see the host setup docs).
-- Fully observed model (phase + location known); the epistemic-value machinery is
-  demonstrated separately on the table model.
+- The agent operates under **partial observability** (location-gated noisy
+  `phase_evidence`), so it must navigate to perceive — see *Observations* above.
+  The trace shows `AMBIGUOUS` readings whenever the robot is off a phase's station.
