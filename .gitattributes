@@ -1,0 +1,7 @@
+# Keep shell scripts LF so they run inside the Linux Docker container.
+# (Windows CRLF on entrypoint.sh caused `exec /entrypoint.sh: no such file or
+# directory` because the shebang became `#!/bin/bash\r`.)
+*.sh text eol=lf
+*.bash text eol=lf
+*.template text eol=lf
+entrypoint.sh text eol=lf

@@ -86,6 +86,7 @@ docker run -it \
     --env="NVIDIA_VISIBLE_DEVICES=all" \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
     --volume="/mnt/wslg:/mnt/wslg:rw" \
+    --volume="$CURRENT_DIR/docker/entrypoint.sh:/entrypoint.sh:ro" \
     --volume="$CURRENT_DIR:/root/docker-ws" \
     --net=host \
     --privileged \
