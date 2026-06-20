@@ -4,6 +4,9 @@ How the active-inference (AIF) subsystem is built, how its pieces relate, and ho
 it sits inside the rest of the Steel City / EMSRC robot system. This is the map;
 the per-piece docs are linked at the bottom.
 
+> **Just want to run something?** See **[how_to_run.md](how_to_run.md)** — every
+> piece, its command, and what to expect.
+
 ## 1. The one-sentence idea
 
 The competition robot already has a decision core — `ReactiveCoordinator` in
