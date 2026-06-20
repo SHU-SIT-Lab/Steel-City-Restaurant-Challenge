@@ -107,7 +107,12 @@ def build_B(p_kitchen: float = 0.3) -> np.ndarray:
         service(SEAT,       EMPTY,   ENTRANCE, SEATED)
         service(TAKE_ORDER, SEATED,  TABLE,    ORDERED)
         service(MARK_READY, ORDERED, TABLE,    READY)    # sim parity; really exogenous
-        service(DELIVER,    READY,   BARISTA,  DELIVERED)
+        # DELIVER carries the ready order from the barista to the table: the robot
+        # ends AT THE TABLE (where DELIVERED is observable), not at the barista.
+        if phase == READY and loc == BARISTA:
+            set_T(DELIVER, s, s_idx(DELIVERED, TABLE))
+        else:
+            set_T(DELIVER, s, s)
 
     return B
 

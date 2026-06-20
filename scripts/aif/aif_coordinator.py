@@ -1,21 +1,22 @@
-"""AIF decision core for the waiter — a ReactiveCoordinator look-alike.
+"""AIF decision core for the waiter (JAX pymdp) — a ReactiveCoordinator look-alike.
 
 `AIFWaiter` selects one action per tick by EFE minimisation over the generative
 model in generative_model.py, replacing the hand-coded `order x precondition`
-argmax. Two entry points:
+argmax. Uses the JAX `pymdp.agent.Agent` (same stack as leader_follower_aif).
 
-  - act(obs)         : one decision step, for wiring into the ROS coordinator.
-  - run_headless(...) : a self-contained simulation (no ROS/Firestore) that runs
-                        the generative process and prints the action trace, to
-                        validate that sensible serve-order behavior emerges.
+Two entry points:
+  - act(obs)          : one decision step, for wiring into the ROS coordinator.
+  - run_headless(...)  : a self-contained simulation (no ROS/Firestore) that runs
+                         the generative process and prints the action trace.
 
-ROS integration (TODO): in turtlebot4_run.py, swap ReactiveCoordinator for a thin
-node that, each timer tick, builds `obs` from Firestore + the latest vision/speech
-(encode_observation) and routes the chosen action through the SAME primitives the
-reactive behaviors use (set_navigation_target / say / ask / db writes). The map
-from action -> primitive is ACTION_TO_TARGET below.
+NOTE: run on Linux/WSL — JAX's first XLA compile is far faster there than on
+native Windows. Deps: scripts/aif/requirements.txt.
 
-STATUS: scaffold / WIP. Requires `pip install inferactively-pymdp`.
+ROS integration (TODO): in turtlebot4_run.py, each timer tick build `obs` from
+Firestore + the latest vision/speech, call act(), and route the chosen action
+through the SAME primitives the reactive behaviors use (ACTION_TO_TARGET below).
+
+STATUS: scaffold / WIP.
 """
 from __future__ import annotations
 
@@ -28,7 +29,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import generative_model as gm  # noqa: E402
 
 # action -> the navigation/behavior primitive the reactive system already uses.
-# (location ids match database_bridge: "entrance" / "barista" / table_{n}.)
 ACTION_TO_TARGET = {
     gm.GO_ENTRANCE: ("nav", "entrance"),
     gm.GO_TABLE: ("nav", "table"),       # resolved to table_{current+1} at runtime
@@ -41,43 +41,70 @@ ACTION_TO_TARGET = {
 }
 
 
-def _make_agent(norms: gm.Norms | None = None):
+def _build_agent(norms: gm.Norms | None = None, gamma: float = 16.0,
+                 action_selection: str = "deterministic", policy_len: int = 4):
     try:
-        from pymdp import utils
+        import jax.numpy as jnp
         from pymdp.agent import Agent
+        from pymdp.control import construct_policies
     except ImportError as exc:  # pragma: no cover
         raise SystemExit(
-            "pymdp not installed. `pip install inferactively-pymdp` to run the AIF agent."
+            "JAX pymdp not installed. `pip install -r scripts/aif/requirements.txt` "
+            "(run on Linux/WSL for fast XLA compile)."
         ) from exc
 
-    A_, B_, C_, D_, E_ = gm.build_model(norms)
-    A = utils.obj_array(1); A[0] = A_
-    B = utils.obj_array(1); B[0] = B_
-    C = utils.obj_array(1); C[0] = C_
-    D = utils.obj_array(1); D[0] = D_
-    return Agent(A=A, B=B, C=C, D=D, E=E_, policy_len=1, use_utility=True, use_states_info_gain=True)
+    A_, B_, C_, D_, _E = gm.build_model(norms)
+    # JAX pymdp wants a leading batch dimension on every array.
+    A = [jnp.array(A_[None, ...])]   # (1, N_OBS, N_STATE)
+    B = [jnp.array(B_[None, ...])]   # (1, N_STATE, N_STATE, N_ACTION)
+    C = [jnp.array(C_[None, ...])]   # (1, N_OBS)
+    D = [jnp.array(D_[None, ...])]   # (1, N_STATE)
+    policies = construct_policies([gm.N_STATE], [gm.N_ACTION], policy_len=policy_len, control_fac_idx=[0])
+    agent = Agent(
+        A=A, B=B, C=C, D=D,
+        A_dependencies=[[0]], B_dependencies=[[0]],
+        num_controls=[gm.N_ACTION], control_fac_idx=[0],
+        policies=policies, policy_len=policy_len, gamma=gamma,
+        action_selection=action_selection, inference_algo="fpi", num_iter=16,
+        batch_size=1,
+    )
+    return agent
 
 
 class AIFWaiter:
-    """One active-inference decision core for the waiter."""
+    """One active-inference decision core for the waiter (JAX pymdp)."""
 
-    def __init__(self, norms: gm.Norms | None = None):
-        self.norms = norms
-        self.agent = _make_agent(norms)
+    def __init__(self, norms: gm.Norms | None = None, gamma: float = 16.0, seed: int = 0):
+        import jax
+        self.agent = _build_agent(norms, gamma)
+        self.key = jax.random.PRNGKey(seed)
+        self.prior = list(self.agent.D)  # empirical prior over states (rolled forward each step)
 
     def act(self, obs_idx: int) -> int:
         """obs_idx in [0, N_OBS): a phase readout (or AMBIGUOUS). Returns an action."""
-        self.agent.infer_states([obs_idx])
-        self.agent.infer_policies()
-        action = self.agent.sample_action()
-        return int(action[0])
+        import jax
+        import jax.numpy as jnp
+
+        qs = self.agent.infer_states([jnp.array([obs_idx])], self.prior)
+        q_pi, _G = self.agent.infer_policies(qs)
+        self.key, sub = jax.random.split(self.key)
+        action = self.agent.sample_action(q_pi, rng_key=sub[None, :])  # batch dim for vmap
+        a = int(np.asarray(action).ravel()[0])
+
+        # Roll the state prior forward through the chosen action: prior = B[:,:,a] qs.
+        qs0 = np.asarray(qs[0]).reshape(-1)
+        B0 = np.asarray(self.agent.B[0]).reshape(gm.N_STATE, gm.N_STATE, gm.N_ACTION)
+        prior0 = B0[:, :, a] @ qs0
+        prior0 = prior0 / max(prior0.sum(), 1e-12)
+        self.prior = [jnp.array(prior0[None, :])]
+        return a
 
 
 def run_headless(steps: int = 14, seed: int = 0, norms: gm.Norms | None = None) -> None:
     """Simulate the generative process with the model's own B/A and watch the
     EFE-minimising agent drive one table from EMPTY to DELIVERED."""
     rng = np.random.default_rng(seed)
-    waiter = AIFWaiter(norms)
+    waiter = AIFWaiter(norms=norms, seed=seed)
     A, B = gm.build_A(), gm.build_B()
 
     true_s = gm.s_idx(gm.EMPTY, gm.ENTRANCE)
@@ -95,6 +122,4 @@ def run_headless(steps: int = 14, seed: int = 0, norms: gm.Norms | None = None) 
 
 
 if __name__ == "__main__":
-    # Example: a "serve-in-arrival-order" soft norm would down-weight DELIVER
-    # before earlier phases; here we run the un-normed agent.
     run_headless()

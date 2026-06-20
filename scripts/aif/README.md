@@ -2,7 +2,8 @@
 
 An active-inference reformulation of the `ReactiveCoordinator` waiter logic:
 instead of `argmax(order x precondition)`, the agent minimises expected free
-energy over a generative model of the service lifecycle. The info-gathering
+energy (EFE) over a generative model of the service lifecycle, using the JAX
+`pymdp.agent.Agent` (same stack as `leader_follower_aif`). The info-gathering
 behaviors become **epistemic** actions and the service behaviors **pragmatic**
 ones — arbitrated automatically. Norms ("law as code") enter as priors/masks.
 
@@ -12,18 +13,36 @@ Full rationale and the behavior -> generative-model mapping: **[../../docs/aif_d
 | File | Role |
 | --- | --- |
 | `generative_model.py` | POMDP: state = phase x robot_loc; A (location-gated), B (precondition-gated), C (preference toward DELIVERED), D, and the `Norms` law-as-code seam. |
-| `aif_coordinator.py` | `AIFWaiter` EFE decision core + `run_headless()` demo. |
+| `aif_coordinator.py` | `AIFWaiter` EFE decision core (JAX pymdp) + `run_headless()` demo. |
+| `requirements.txt` | `inferactively-pymdp` (JAX) + `jax[cpu]` + `numpy`. |
 
 ## Run the headless demo
+**Run on Linux / WSL** — JAX's first XLA compile is far faster than on native
+Windows (minutes vs seconds).
 ```bash
-pip install inferactively-pymdp numpy
+pip install -r scripts/aif/requirements.txt
 python scripts/aif/aif_coordinator.py
 ```
-Watch one table go EMPTY -> DELIVERED, with the agent choosing `GO_*` (look) when
-uncertain and service actions when confident.
+Expected output — the agent serves one table by EFE minimisation alone (no
+hand-coded priorities), in the optimal 6 steps:
+```
+ 0  SEAT         SEATED@ENTRANCE
+ 1  GO_TABLE     SEATED@TABLE
+ 2  TAKE_ORDER   ORDERED@TABLE
+ 3  MARK_READY   READY@TABLE
+ 4  GO_BARISTA   READY@BARISTA
+ 5  DELIVER      DELIVERED@TABLE   -> served in 6 steps.
+```
 
 ## Status
-Scaffold / WIP. Structure is faithful; numeric likelihoods/preferences are
-first-pass and need tuning. Next: multi-table factorisation, law-as-code norm
-compilation, and the ROS wiring (swap into `turtlebot4_run.py`). See the "Open
-modelling decisions" in the design doc.
+**Validated end-to-end**: the JAX agent constructs, infers, and drives a table
+EMPTY -> DELIVERED optimally. The serve *order* emerges from EFE, not from
+`self.order` ranks.
+
+Note: `policy_len=4` (deterministic) is needed because the payoff (DELIVERED) is
+only observable several steps ahead — a 1-step agent dithers. The numeric
+likelihoods/preferences are still first-pass.
+
+Next: multi-table factorisation, law-as-code norm compilation, and the ROS
+wiring (swap into `turtlebot4_run.py`). See the "Open modelling decisions" in the
+design doc.
