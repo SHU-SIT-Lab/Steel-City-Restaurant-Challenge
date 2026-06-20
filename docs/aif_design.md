@@ -10,6 +10,26 @@ This is a drop-in alternative to `turtlebot4_run.py::ReactiveCoordinator`: same
 ROS interface (writes `shared_state["target_location"]`, calls speech/vision/DB),
 different decision core. See `scripts/aif/`.
 
+## Implementation status (validated)
+
+Built on the **JAX `pymdp.agent.Agent`** (same stack as `leader_follower_aif`)
+and validated headless: the agent drives one table EMPTY → DELIVERED in the
+optimal 6 steps (`SEAT, GO_TABLE, TAKE_ORDER, MARK_READY, GO_BARISTA, DELIVER`)
+by EFE minimisation alone — the serve order *emerges*, it is not the `self.order`
+ranks. Run `scripts/aif/aif_coordinator.py` (deps in `scripts/aif/requirements.txt`).
+
+Two findings worth recording:
+
+- **Planning horizon matters.** With `policy_len=1` the agent dithers, because the
+  payoff (a `DELIVERED` observation) is only reachable several steps ahead and —
+  with location-gated observations — is not visible one step out. `policy_len=4`
+  (deterministic selection) recovers the optimal policy. This is the pragmatic
+  cost of the epistemic structure: looking is only worthwhile if the planner can
+  see far enough to use what it learns.
+- **Run on Linux/WSL.** JAX's first XLA compile is impractically slow on native
+  Windows Python (minutes, CPU-pegged); it is seconds on Linux. The miniforge
+  base env and WSL both already have `jax` + `pymdp`.
+
 ## Why AIF is the *right* generalisation here
 
 The current arbiter is, in AIF terms, a **degenerate EFE with γ→∞**:
@@ -122,10 +142,12 @@ So the navigation team, speech team, and webapp are unaffected — only the
    joint model with a shared robot-location and queue factor (captures "serve in
    order" coupling natively). Scaffold does per-table; norm #1 above is the cheap
    way to add ordering without a joint state space.
-2. **Framework** — vanilla `pymdp` (portable, in the scaffold) vs your JAX/equinox
-   planner from `leader_follower_aif` (precision modulation, continuous factors,
-   ToM). Recommend prototyping in pymdp, porting to the JAX planner once the
-   factor structure is settled.
+2. **Framework** — *resolved*: built directly on the **JAX `pymdp.agent.Agent`**
+   (not the legacy numpy pymdp, which is install-fragile and was deprecated to
+   JAX). This matches `leader_follower_aif`. Its custom `HierarchicalAIFPlanner`
+   (ToM, continuous energy factors) is too domain-specific to reuse here, so we
+   drive the raw `Agent`; that wrapper is the porting target if precision
+   modulation / continuous factors are later needed.
 3. **MARK_READY** — exogenous transition (principled) vs action (sim parity).
 4. **Epistemic source** — location-gated A (in scaffold) vs explicit
    ambiguity/precision over vision; the latter lets the LLM/vision confidence
