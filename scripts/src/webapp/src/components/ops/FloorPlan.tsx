@@ -11,6 +11,42 @@ interface FloorPlanProps {
 
 const tableStatuses: TableStatus[] = ["empty", "occupied", "needs_cleaning", "unavailable"];
 
+function hasFinitePose(table: Table): boolean {
+  return Number.isFinite(table.pose_x) && Number.isFinite(table.pose_y);
+}
+
+// Live Firestore table docs (robot schema) may not carry table_number, so fall
+// back to table_id / the doc id rather than rendering "Table undefined".
+function tableLabel(table: Table): string {
+  const raw = table as { table_number?: number; table_id?: number | string };
+  if (typeof raw.table_number === "number" && Number.isFinite(raw.table_number)) {
+    return `Table ${raw.table_number}`;
+  }
+  if (raw.table_id !== undefined && raw.table_id !== null && raw.table_id !== "") {
+    return `Table ${raw.table_id}`;
+  }
+  return `Table ${table.id}`;
+}
+
+// Place tables by their real pose when present; otherwise lay them out in a tidy
+// grid across the lower portion of the canvas (clear of the entrance/kitchen
+// zones up top and the robot marker), so the map is readable without pose data.
+function tablePosition(table: Table, index: number, total: number): { left: string; top: string } {
+  if (hasFinitePose(table)) {
+    return {
+      left: `${Math.min(table.pose_x * 12, 78)}%`,
+      top: `${Math.min(table.pose_y * 18, 78)}%`,
+    };
+  }
+  const cols = Math.min(Math.max(total, 1), 3);
+  const rows = Math.max(Math.ceil(total / cols), 1);
+  const col = index % cols;
+  const row = Math.floor(index / cols);
+  const left = ((col + 0.5) / cols) * 100;
+  const top = rows === 1 ? 60 : 38 + (row / (rows - 1)) * 40;
+  return { left: `${left}%`, top: `${top}%` };
+}
+
 export function FloorPlan({ snapshot, saving, onUpdateTableStatus }: FloorPlanProps) {
   const robot = snapshot.robots[0];
   const [selectedTable, setSelectedTable] = useState<Table | null>(null);
@@ -28,9 +64,11 @@ export function FloorPlan({ snapshot, saving, onUpdateTableStatus }: FloorPlanPr
       <div className="floor-plan__canvas">
         <div className="zone zone--entrance">Entrance</div>
         <div className="zone zone--kitchen">Kitchen bar</div>
-        {snapshot.tables.map((table) => (
+        {snapshot.tables.map((table, index) => (
           <TableCard
             key={table.id}
+            index={index}
+            total={snapshot.tables.length}
             onSelect={() => setSelectedTable(table)}
             table={table}
             saving={saving}
@@ -47,7 +85,7 @@ export function FloorPlan({ snapshot, saving, onUpdateTableStatus }: FloorPlanPr
         eyebrow="Table detail"
         onClose={() => setSelectedTable(null)}
         open={Boolean(selectedTable)}
-        title={selectedTable ? `Table ${selectedTable.table_number}` : "Table"}
+        title={selectedTable ? tableLabel(selectedTable) : "Table"}
       >
         {selectedTable ? (
           <TableActionSheet
@@ -65,27 +103,32 @@ export function FloorPlan({ snapshot, saving, onUpdateTableStatus }: FloorPlanPr
 
 function TableCard({
   table,
+  index,
+  total,
   onSelect,
 }: {
   table: Table;
+  index: number;
+  total: number;
   saving: boolean;
   onSelect: () => void;
 }) {
+  const { left, top } = tablePosition(table, index, total);
+
   return (
     <button
       className={`table-card table-card--${table.status}`}
       onClick={onSelect}
-      style={{
-        left: `${Math.min(table.pose_x * 12, 78)}%`,
-        top: `${Math.min(table.pose_y * 18, 78)}%`,
-      }}
+      style={{ left, top }}
       type="button"
     >
-      <strong>Table {table.table_number}</strong>
+      <strong>{tableLabel(table)}</strong>
       <span>{table.status.replace("_", " ")}</span>
-      <small>
-        x {table.pose_x} / y {table.pose_y}
-      </small>
+      {hasFinitePose(table) ? (
+        <small>
+          x {table.pose_x} / y {table.pose_y}
+        </small>
+      ) : null}
     </button>
   );
 }
@@ -121,7 +164,9 @@ function TableActionSheet({
         <div>
           <dt>Pose</dt>
           <dd>
-            {table.pose_x}, {table.pose_y}, {table.pose_theta}
+            {hasFinitePose(table)
+              ? `${table.pose_x}, ${table.pose_y}, ${table.pose_theta}`
+              : "Not set"}
           </dd>
         </div>
         <div>
