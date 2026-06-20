@@ -63,13 +63,14 @@ in a Jazzy environment. Two ways, both reusing the same networking fixes:
 Either way, then `ros2 topic list` should show `/scan`, `/oakd/*`, `/battery_state`.
 If "ping works but ROS sees nothing", read [troubleshooting_dds_wsl.md](troubleshooting_dds_wsl.md).
 
-**Choose the brain** (both flags off by default → reactive, no law):
+**Choose the brain.** Turn-key (installs deps, builds, configures DDS, launches):
 ```bash
-# default: reactive coordinator, unchanged
-ros2 launch turtlebot4_steel_city_competition steel_city.launch.py
-# active inference (EFE selection over the same behaviors), FIFO table choice
-AIF_COORDINATOR=1 ros2 launch turtlebot4_steel_city_competition steel_city.launch.py
-# active inference + law-as-code multi-customer ordering
+scripts/native/deploy.sh reactive     # original reactive coordinator
+scripts/native/deploy.sh aif          # active inference, no law (FIFO)
+scripts/native/deploy.sh aif-law      # active inference + law-as-code ordering
+```
+Or by hand (both flags off by default → reactive, no law):
+```bash
 AIF_COORDINATOR=1 AIF_LAW=1 ros2 launch turtlebot4_steel_city_competition steel_city.launch.py
 ```
 See [aif_ros_integration.md](aif_ros_integration.md) (needs jax+pymdp in the ROS env).

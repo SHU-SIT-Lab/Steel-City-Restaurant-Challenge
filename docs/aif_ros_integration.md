@@ -5,9 +5,28 @@ alternative to the reactive coordinator. It selects the next action by **EFE
 minimisation** and executes it through the **same behaviors and navigation** the
 reactive system already uses — only the *selection* changes.
 
-## How to run it
+## Turn-key deploy (one command)
 
-Set one env var; everything else is unchanged:
+On the laptop, inside the ROS 2 Jazzy env (native Ubuntu 24.04 WSL distro or
+Docker) and on the robot's Wi-Fi, from the repo root:
+
+```bash
+scripts/native/deploy.sh aif-law      # active inference + law-as-code
+scripts/native/deploy.sh aif          # active inference, no law (FIFO)   [default]
+scripts/native/deploy.sh reactive     # the original reactive coordinator
+```
+
+That single command **installs the AIF deps** (jax + pymdp), **builds the
+workspace** (`colcon`), **configures the discovery server + FastDDS Wi-Fi
+whitelist** for the robot (`ROBOT_IP` from `docker/nav.env`, default
+`192.168.8.111`), **sets the brain flags**, prints a 5-second robot-topic sanity
+check, and **launches**. Re-run knobs: `BUILD=0` (skip build), `DEPS=0` (skip pip),
+`NO_LAUNCH=1` (set up only). Prereq: ROS 2 Jazzy installed
+(`scripts/native/install_jazzy.sh`).
+
+## How to run it (manual / under the hood)
+
+`deploy.sh` just sets these env vars and launches. To do it by hand:
 
 ```bash
 # in the ROS 2 Jazzy env (Docker or native), with jax+pymdp installed:
