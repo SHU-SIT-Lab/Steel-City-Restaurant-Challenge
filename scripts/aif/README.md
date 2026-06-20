@@ -34,10 +34,26 @@ hand-coded priorities), in the optimal 6 steps:
  5  DELIVER      DELIVERED@TABLE   -> served in 6 steps.
 ```
 
+## Evaluation
+`python scripts/aif/evaluate.py` runs the episode over many seeds:
+
+| Environment | Success | Steps-to-serve |
+| --- | --- | --- |
+| matched (obs sharp 0.9) | 10/10 | 6 (optimal) |
+| noisy env (obs sharp 0.6) | 10/10 | 6 (optimal) |
+
+The agent serves optimally every seed and is robust to observation noise well
+beyond what its model assumes. **Caveat:** as modelled the task is
+near-deterministic from the agent's view, so this does **not** yet stress the
+*epistemic* machinery (the ~2 move actions/episode are required, not
+uncertainty-driven extra looks). Demonstrating "look when unsure" needs a harder
+variant (latent table state, stochastic customers / party size). The env-vs-agent
+mismatch here is observation-noise only (shared B); no pytest unit tests yet.
+
 ## Status
 **Validated end-to-end**: the JAX agent constructs, infers, and drives a table
-EMPTY -> DELIVERED optimally. The serve *order* emerges from EFE, not from
-`self.order` ranks.
+EMPTY -> DELIVERED optimally (10/10 seeds, 6 steps). The serve *order* emerges
+from EFE, not from `self.order` ranks.
 
 Note: `policy_len=4` (deterministic) is needed because the payoff (DELIVERED) is
 only observable several steps ahead — a 1-step agent dithers. The numeric
