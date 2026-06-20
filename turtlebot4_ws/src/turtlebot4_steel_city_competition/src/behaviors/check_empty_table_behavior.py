@@ -6,40 +6,59 @@ import time
 from typing import Any
 
 from behaviors.behaviors import DeliberativeBehavior
-from behaviors.database_bridge import RestaurantDatabase, shared_state, table_empty_status
+from behaviors.database_bridge import (
+	RestaurantDatabase,
+	set_navigation_target,
+	shared_state,
+	table_empty_status,
+	table_id_to_location,
+)
 
 
 class CheckEmptyTableBehavior(DeliberativeBehavior):
-	"""Minimal behavior template for updating new customer count."""
+	"""Update table occupancy in Firestore after vision checks at each table."""
 
 	def __init__(self) -> None:
 		super().__init__(name="check_empty_table")
 		self.wait_time = 5.0
 		self.order = 1
-		self.number_of_tables = 5
 		self.db = RestaurantDatabase()
 
 	def plan(self, ctx: Any) -> None:
-		for table_id in range(self.number_of_tables):
-			# TODO 1: Navigation
-			# Move to table_id.
+		state = shared_state(ctx)
+		table_id = state.get("current_table_id")
+		if table_id is None:
+			return
 
-			# TODO 2: Vision
-			# Check if table_id is empty or occupied.
+		table_id = int(table_id)
+		table_location = table_id_to_location(table_id)
 
-			# TODO 3: Database
-			# Update database on table status (empty or occupied).
-			state = shared_state(ctx)
-			table_empty = state.get("table_empty", self.object_detection.table_empty)
-			if isinstance(table_empty, dict):
-				table_empty = table_empty.get(table_id)
-			if table_empty is None:
-				continue
+		if state.get("next_target_location") is not None:
+			return
 
+		if state.get("target_location") != table_location:
+			set_navigation_target(ctx, table_location, table_id=table_id)
+			return
+
+		if self.object_detection is not None:
+			self.object_detection.current_table_id = table_id
+
+		table_empty = state.get("table_empty")
+		if table_empty is None and self.object_detection is not None:
+			table_empty = getattr(self.object_detection, "table_empty", None)
+
+		if isinstance(table_empty, dict):
+			table_empty = table_empty.get(table_id)
+		if table_empty is None:
+			return
+
+		state["table_empty"] = table_empty
+		try:
 			self.db.update_table_status(table_id, table_empty_status(table_empty))
+		except Exception as exc:
+			print(f"[CHECK_EMPTY_TABLE] Firestore write failed ({exc}).")
 
 	def compute_priority(self) -> float:
-
 		elapsed_time = time.monotonic() - self.last_run_time
 		if elapsed_time < self.wait_time:
 			self.priority = 0.0

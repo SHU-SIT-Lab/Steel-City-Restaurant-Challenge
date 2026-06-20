@@ -17,7 +17,7 @@ except ImportError:
 # Global settings for speaker playback.
 SPEAKER_CONFIG = {
     "topic": "/audio_output",
-    "device_id": 10,  # Change this to your desired device ID (-1 for default)
+    "device_id": 4,  # Change this to your desired device ID (-1 for default)
     "input_sample_rate": 16000,  # Rate of incoming audio
     "output_sample_rate": None,  # Will be auto-detected
     "channels": 1,
@@ -108,6 +108,7 @@ class SpeakerSubscriber(Node):
             
             # Convert to float32 (-1.0 to 1.0 range for sounddevice)
             audio_float = audio_int16.astype(np.float32) / 32768.0
+            print(f"[Speaker] Received: {len(audio_int16)} samples, peak: {np.max(np.abs(audio_float)):.3f}")
 
             # Resample if needed
             if (

@@ -6,7 +6,7 @@ import time
 from typing import Any
 
 from behaviors.behaviors import DeliberativeBehavior
-from behaviors.database_bridge import RestaurantDatabase, get_bool, shared_state
+from behaviors.database_bridge import ENTRANCE_LOCATION, RestaurantDatabase, get_bool, set_navigation_target, shared_state
 
 
 class CheckCustomerBehavior(DeliberativeBehavior):
@@ -19,17 +19,23 @@ class CheckCustomerBehavior(DeliberativeBehavior):
 		self.db = RestaurantDatabase()
 
 	def plan(self, ctx: Any) -> None:
-		# TODO 1: Navigation
-		# Move robot to entrance.
-
-		# TODO 2: Vision
-		# Check camera for new customers.
-
-		# TODO 3: Database
-		# Use collaborator database integration to update if a new customer is detected.
+		set_navigation_target(ctx, ENTRANCE_LOCATION)
 		state = shared_state(ctx)
-		detected = state.get("customer_present", self.object_detection.customer_present)
-		self.db.set_customers_detected_at_entrance(get_bool(detected))
+
+		if self.object_detection is not None:
+			self.object_detection.current_table_id = None
+
+		detected = state.get("customer_present")
+		if detected is None and self.object_detection is not None:
+			detected = getattr(self.object_detection, "customer_present", False)
+		if detected is None:
+			detected = False
+
+		state["customer_present"] = detected
+		try:
+			self.db.set_customers_detected_at_entrance(get_bool(detected, default=False))
+		except Exception as exc:
+			print(f"[CHECK_CUSTOMER] Firestore write failed ({exc}).")
 
 	def compute_priority(self) -> float:
 		elapsed_time = time.monotonic() - self.last_run_time

@@ -6,47 +6,55 @@ import time
 from typing import Any
 
 from behaviors.behaviors import DeliberativeBehavior
-from behaviors.database_bridge import RestaurantDatabase, get_bool, shared_state
+from behaviors.database_bridge import (
+	BARISTA_LOCATION,
+	RestaurantDatabase,
+	get_bool,
+	set_navigation_target,
+	shared_state,
+	table_id_to_location,
+)
 
 
 class CollectOrderBehavior(DeliberativeBehavior):
-	"""Minimal behavior template for updating new customer count."""
+	"""Collect a ready order from the barista and deliver it to the table."""
 
 	def __init__(self) -> None:
 		super().__init__(name="collect_order")
 		self.wait_time = 5.0
 		self.order = 6
-		self.number_of_tables = 5
 		self.db = RestaurantDatabase()
 
 	def plan(self, ctx: Any) -> None:
 		table_id = self.db.find_table_with_ready_order()
 		if table_id is None:
 			return
-		shared_state(ctx)["current_table_id"] = table_id
 
-		# TODO 1: Navigation
-		# Move to barista.
+		set_navigation_target(
+			ctx,
+			BARISTA_LOCATION,
+			table_id=table_id,
+			next_location=table_id_to_location(table_id),
+		)
 
-		# TODO 2: LLM
-		# Ask barista if order for table_id is ready to deliver every 1 minute
+		# TODO: Navigation team — navigate to target_location, then next_target_location.
+		# TODO: LLM — confirm with barista and customer.
 
-		# TODO 3: Navigation
-		# Move to the table.
-
-		# TODO 4: LLM
-		# Ask customer if they are done collecting every 1 minute
-
-		# TODO 5: Database
-		# Update database on table status (order delivered)
 		state = shared_state(ctx)
-		delivered = state.get("order_delivered", state.get("customer_collected_order", True))
-		if get_bool(delivered, default=True):
-			self.db.mark_order_delivered(table_id)
+		table_location = table_id_to_location(table_id)
+		if state.get("target_location") != table_location:
+			return
+
+		delivered = state.get("order_delivered", state.get("customer_collected_order"))
+		if get_bool(delivered, default=False):
+			try:
+				self.db.mark_order_delivered(table_id)
+				state.pop("next_target_location", None)
+				state.pop("delivery_table_id", None)
+			except Exception as exc:
+				print(f"[COLLECT_ORDER] Firestore write failed ({exc}).")
 
 	def compute_priority(self) -> float:
-		# TODO 6: Database
-		# Check if table is occupied, has ordered and if the order is ready, 0 if no and 1 if yes
 		self.order_ready = 1 if self.db.has_ready_order() else 0
 
 		elapsed_time = time.monotonic() - self.last_run_time

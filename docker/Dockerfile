@@ -52,7 +52,11 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     scipy \
     pyaudio \
     numpy \
-    opencv-python-headless
+    opencv-python-headless \
+    ultralytics \
+    speechbrain \
+    sounddevice \
+    torch
 
 RUN mkdir -p /etc/turtlebot4
 

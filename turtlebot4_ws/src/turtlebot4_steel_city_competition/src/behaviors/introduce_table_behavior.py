@@ -6,11 +6,17 @@ import time
 from typing import Any
 
 from behaviors.behaviors import DeliberativeBehavior
-from behaviors.database_bridge import RestaurantDatabase, shared_state
+from behaviors.database_bridge import (
+	ENTRANCE_LOCATION,
+	RestaurantDatabase,
+	set_navigation_target,
+	shared_state,
+	table_id_to_location,
+)
 
 
 class IntroduceTableBehavior(DeliberativeBehavior):
-	"""Minimal behavior template for updating new customer count."""
+	"""Seat waiting customers by assigning a free table in Firestore."""
 
 	def __init__(self) -> None:
 		super().__init__(name="introduce_table")
@@ -19,33 +25,32 @@ class IntroduceTableBehavior(DeliberativeBehavior):
 		self.db = RestaurantDatabase()
 
 	def plan(self, ctx: Any) -> None:
-		# TODO 1: Navigation
-		# Move robot to entrance.
+		if not self.db.should_guide_customer_to_table():
+			return
 
-		# TODO 2: LLM
-		# Ask customer to follow you
-		
-		# TODO 3: Database
-		# Check which table is assigned to the customer and update database with table assignment. Set table to occupied.
 		table_id = self.db.find_empty_table()
 		if table_id is None:
 			return
-		self.db.assign_table(table_id)
-		self.db.decrement_customers_waiting()
-		shared_state(ctx)["assigned_table_id"] = table_id
 
-		# TODO 4: Navigation
-		# Move robot to assigned table.
+		table_location = table_id_to_location(table_id)
+		set_navigation_target(
+			ctx,
+			ENTRANCE_LOCATION,
+			next_location=table_location,
+		)
 
-		# TODO 5: LLM
-		# Tell customer to sit and how to order
-		pass
+		state = shared_state(ctx)
+		state["assigned_table_id"] = table_id
+		try:
+			self.db.assign_table(table_id)
+			self.db.decrement_customers_waiting()
+		except Exception as exc:
+			print(f"[INTRODUCE_TABLE] Firestore write failed ({exc}).")
+
+		# TODO: Navigation team — entrance first, then next_target_location (table).
+		# TODO: LLM — guide customer and explain how to order.
 
 	def compute_priority(self) -> float:
-		# TODO 6: Database
-		# Check if customer_number at front door is not zero
-		# Check if there is empty table
-		# If customer number is at front door is not zero and there is empty table, then set customers_detected to 1, else 0
 		self.guide_customer = 1 if self.db.should_guide_customer_to_table() else 0
 
 		elapsed_time = time.monotonic() - self.last_run_time

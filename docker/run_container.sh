@@ -75,7 +75,7 @@ fi
 XAUTH=/tmp/.docker.xauth
 CURRENT_DIR="$(pwd)"
 
-touch "$XAUTH"
+sudo touch "$XAUTH"
 xauth nlist "$DISPLAY" 2>/dev/null | sed -e 's/^..../ffff/' | xauth -f "$XAUTH" nmerge - 2>/dev/null || true
 
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
