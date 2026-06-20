@@ -1,5 +1,6 @@
 import { useState } from "react";
 import { createOrder } from "../lib/api/client";
+import { tableLabel } from "../lib/firestore/converters";
 import { useOrderDraft } from "../hooks/useOrderDraft";
 import type { OpsDataState } from "../hooks/useOpsData";
 import { OptionCard } from "../components/ui/Modal";
@@ -11,7 +12,7 @@ interface CustomerScreenProps {
 
 export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
   const { snapshot, loading, mode } = ops;
-  const menu = snapshot.menu;
+  const menu = snapshot.menu.filter((item) => item.available !== false);
   const availableTables = snapshot.tables.filter((table) => table.status !== "unavailable");
 
   const { selectedItems, notes, setNotes, toggleItem, changeQuantity, items, itemCount, reset } =
@@ -33,7 +34,7 @@ export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
 
     try {
       await createOrder({ table_id: selectedTableId, notes, items });
-      setConfirmedTable(selectedTable ? `Table ${selectedTable.table_number}` : selectedTableId);
+      setConfirmedTable(selectedTable ? tableLabel(selectedTable) : selectedTableId);
       reset();
       ops.actions.refresh();
     } catch (error) {
@@ -61,7 +62,7 @@ export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
             {mode === "live" ? "Live menu" : "Demo menu"}
           </span>
           <span className="role-pill">
-            {selectedTable ? `Table ${selectedTable.table_number}` : "No table"}
+            {selectedTable ? tableLabel(selectedTable) : "No table"}
           </span>
           <button className="button--ghost" onClick={onSwitchView} type="button">
             Switch view
@@ -83,7 +84,7 @@ export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
                     meta={table.status.replace("_", " ")}
                     onClick={() => setSelectedTableId(table.id)}
                     selected={selectedTableId === table.id}
-                    title={`Table ${table.table_number}`}
+                    title={tableLabel(table)}
                   />
                 ))}
               </div>
@@ -101,7 +102,8 @@ export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
                     <article className={`menu-choice ${quantity ? "menu-choice--selected" : ""}`} key={item.id}>
                       <button onClick={() => toggleItem(item)} type="button">
                         <strong>{item.name}</strong>
-                        <span>{item.category}</span>
+                        <span className="menu-choice__cat">{item.category}</span>
+                        <span className="menu-choice__add">{quantity ? `In order · ${quantity}` : "+ Add"}</span>
                       </button>
                       {quantity ? (
                         <div className="quantity-row">

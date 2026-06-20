@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { UpdateTableInput } from "../../lib/api/client";
+import { tableLabel } from "../../lib/firestore/converters";
 import type { OpsSnapshot, Table, TableStatus } from "../../types/firestore";
 import { Modal, OptionCard } from "../ui/Modal";
 
@@ -13,19 +14,6 @@ const tableStatuses: TableStatus[] = ["empty", "occupied", "needs_cleaning", "un
 
 function hasFinitePose(table: Table): boolean {
   return Number.isFinite(table.pose_x) && Number.isFinite(table.pose_y);
-}
-
-// Live Firestore table docs (robot schema) may not carry table_number, so fall
-// back to table_id / the doc id rather than rendering "Table undefined".
-function tableLabel(table: Table): string {
-  const raw = table as { table_number?: number; table_id?: number | string };
-  if (typeof raw.table_number === "number" && Number.isFinite(raw.table_number)) {
-    return `Table ${raw.table_number}`;
-  }
-  if (raw.table_id !== undefined && raw.table_id !== null && raw.table_id !== "") {
-    return `Table ${raw.table_id}`;
-  }
-  return `Table ${table.id}`;
 }
 
 // Place tables by their real pose when present; otherwise lay them out in a tidy

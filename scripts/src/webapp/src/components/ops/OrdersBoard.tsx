@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { normalizeOrderItems } from "../../lib/firestore/converters";
+import { normalizeOrderItems, tableLabel } from "../../lib/firestore/converters";
 import { canUpdateOrders, hasMinimumRole } from "../../lib/rbac";
 import type { MenuItem, Order, OrderStatus, Role, Table } from "../../types/firestore";
 import type { AdvanceOrderInput, CreateOrderInput } from "../../lib/api/client";
@@ -113,7 +113,7 @@ export function OrdersBoard({
 
     return (
       <div className="order-card" key={order.id}>
-        <strong>{table ? `Table ${table.table_number}` : order.table_id}</strong>
+        <strong>{table ? tableLabel(table) : order.table_id}</strong>
         <span>{orderItems.map((item) => `${item.quantity}x ${item.name}`).join(", ")}</span>
         {status !== "delivered" ? (
           <button
@@ -188,7 +188,7 @@ export function OrdersBoard({
                   meta={table.status.replace("_", " ")}
                   onClick={() => setSelectedTableId(table.id)}
                   selected={selectedTableId === table.id}
-                  title={`Table ${table.table_number}`}
+                  title={tableLabel(table)}
                 />
               ))}
             </div>
