@@ -35,5 +35,10 @@ apt-get install -y \
 rosdep init 2>/dev/null || true
 rosdep update || true
 
+# Stop WSL appending the Windows PATH: its "Program Files" spaces break ROS 2's
+# setup.bash. (run_native.sh also works around the setup.bash wrapper directly.)
+printf '[interop]\nappendWindowsPath=false\n' > /etc/wsl.conf
+echo "Wrote /etc/wsl.conf (appendWindowsPath=false). Apply once with: wsl --shutdown"
+
 echo "=== done: $(ls /opt/ros/jazzy/setup.bash && echo OK) ==="
-echo "Next: build the workspace and use scripts/native/run_native.sh"
+echo "Next: 'wsl --shutdown', build the workspace, then scripts/native/run_native.sh"

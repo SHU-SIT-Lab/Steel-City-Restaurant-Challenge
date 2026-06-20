@@ -14,8 +14,16 @@ if [[ ! "$ROBOT_IP" =~ ^([0-9]{1,3}\.){3}[0-9]{1,3}$ ]]; then
     exit 1
 fi
 
-# shellcheck disable=SC1091
-source /opt/ros/jazzy/setup.bash
+# Source ROS 2 Jazzy. In some fresh WSL distros `setup.bash` mis-applies (it
+# generates the correct exports but the wrapper drops them, leaving an empty
+# AMENT_PREFIX_PATH), so eval the generated export lines directly — robust.
+if [[ -f /opt/ros/jazzy/_local_setup_util.py ]]; then
+    eval "$(python3 /opt/ros/jazzy/_local_setup_util.py sh | grep '^export ')"
+    export ROS_DISTRO=jazzy ROS_VERSION=2 ROS_PYTHON_VERSION=3
+else
+    # shellcheck disable=SC1091
+    source /opt/ros/jazzy/setup.bash
+fi
 export ROS_DOMAIN_ID="${ROS_DOMAIN_ID:-0}"
 export RMW_IMPLEMENTATION=rmw_fastrtps_cpp
 export ROS_SUPER_CLIENT=True
@@ -24,7 +32,7 @@ export ROS_DISCOVERY_SERVER="${ROBOT_IP}:11811"
 # Pin FastDDS to the interface on the robot subnet (avoids docker0/VPN locator
 # pollution that breaks discovery over Wi-Fi). See docs/troubleshooting_dds_wsl.md.
 SUBNET="$(echo "$ROBOT_IP" | cut -d. -f1-3)."
-LOCAL_IP="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep "^${SUBNET//./\\.}" | head -1)"
+LOCAL_IP="$(hostname -I 2>/dev/null | tr ' ' '\n' | grep "^${SUBNET//./\\.}" | head -1 || true)"
 if [[ -n "$LOCAL_IP" ]]; then
     cat > /tmp/fastdds_wifi.xml <<EOF
 <?xml version="1.0" encoding="UTF-8" ?>

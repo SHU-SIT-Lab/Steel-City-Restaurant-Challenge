@@ -25,6 +25,10 @@ only thing that changes is *container → native distro*.
    wsl -d Ubuntu-24.04 -u root bash /mnt/c/<path-to-repo>/scripts/native/install_jazzy.sh
    ```
 
+   `install_jazzy.sh` also writes `/etc/wsl.conf` with
+   `appendWindowsPath=false` (the Windows PATH's spaces break ROS 2's
+   `setup.bash`). Apply it once: `wsl --shutdown`.
+
 3. **Mirrored networking** — already global to WSL2 via `~/.wslconfig`
    (`networkingMode=mirrored`). See [wsl_host_setup.md](wsl_host_setup.md).
 
