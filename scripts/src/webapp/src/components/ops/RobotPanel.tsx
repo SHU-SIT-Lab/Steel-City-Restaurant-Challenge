@@ -10,6 +10,7 @@ export function RobotPanel({ robot, tasks }: RobotPanelProps) {
   const currentTask = robot.current_task
     ? tasks.find((task) => task.id === robot.current_task)
     : tasks.find((task) => task.status === "queued" || task.status === "running");
+  const queuedCount = tasks.filter((task) => task.status === "queued").length;
 
   return (
     <section className="panel">
@@ -43,6 +44,11 @@ export function RobotPanel({ robot, tasks }: RobotPanelProps) {
             <dd>{formatFirestoreTime(robot.last_seen._seconds)}</dd>
           </div>
         </dl>
+        {queuedCount > 0 ? (
+          <p className="robot-card__pending">
+            {queuedCount} command{queuedCount === 1 ? "" : "s"} queued · awaiting ROS bridge
+          </p>
+        ) : null}
       </div>
     </section>
   );

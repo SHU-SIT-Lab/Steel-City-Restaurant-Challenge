@@ -32,6 +32,7 @@ export function CustomerQueue({
   const [notes, setNotes] = useState("");
   const [assigningParty, setAssigningParty] = useState<EntranceParty | null>(null);
   const [selectedTableId, setSelectedTableId] = useState<string>("");
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const recommendedTable = useMemo(
     () => availableTables.find((table) => (table.table_number ?? 0) >= partySize) ?? availableTables[0],
@@ -40,18 +41,28 @@ export function CustomerQueue({
 
   async function handleCreateParty(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await onCreateParty({ party_size: partySize, notes });
-    setPartyDialogOpen(false);
-    setPartySize(2);
-    setNotes("");
+    try {
+      await onCreateParty({ party_size: partySize, notes });
+      setPartyDialogOpen(false);
+      setPartySize(2);
+      setNotes("");
+      setActionError(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not add the party.");
+    }
   }
 
   async function handlePartyAction(party: EntranceParty) {
     if (party.assigned_table) {
-      await onSeatParty({ party_id: party.id, table_id: party.assigned_table });
+      try {
+        await onSeatParty({ party_id: party.id, table_id: party.assigned_table });
+      } catch {
+        // Seat failures surface in the top-bar status banner.
+      }
       return;
     }
 
+    setActionError(null);
     setAssigningParty(party);
     setSelectedTableId(recommendedTable?.id ?? availableTables[0]?.id ?? "");
   }
@@ -63,16 +74,21 @@ export function CustomerQueue({
       return;
     }
 
-    await onAssignParty({ party_id: assigningParty.id, table_id: selectedTableId });
-    setAssigningParty(null);
-    setSelectedTableId("");
+    try {
+      await onAssignParty({ party_id: assigningParty.id, table_id: selectedTableId });
+      setAssigningParty(null);
+      setSelectedTableId("");
+      setActionError(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not assign the table.");
+    }
   }
 
   return (
     <section className="panel">
       <div className="panel__header">
         <h2>Customer Queue</h2>
-        <button disabled={!canSeat || saving} onClick={() => setPartyDialogOpen(true)}>Add party</button>
+        <button disabled={!canSeat || saving} onClick={() => { setActionError(null); setPartyDialogOpen(true); }}>Add party</button>
       </div>
       <div className="stack-list">
         {queue.length === 0 ? <p className="empty-state">No active parties in the entrance queue.</p> : null}
@@ -135,11 +151,12 @@ export function CustomerQueue({
               value={notes}
             />
           </label>
+          {actionError ? <p className="form-error">{actionError}</p> : null}
           <div className="modal-actions">
             <button className="button button--ghost" onClick={() => setPartyDialogOpen(false)} type="button">
               Cancel
             </button>
-            <button disabled={saving} type="submit">Create party</button>
+            <button disabled={saving} type="submit">{saving ? "Adding…" : "Create party"}</button>
           </div>
         </form>
       </Modal>
@@ -165,11 +182,12 @@ export function CustomerQueue({
               ))}
             </div>
           )}
+          {actionError ? <p className="form-error">{actionError}</p> : null}
           <div className="modal-actions">
             <button className="button button--ghost" onClick={() => setAssigningParty(null)} type="button">
               Cancel
             </button>
-            <button disabled={saving || !selectedTableId} type="submit">Assign table</button>
+            <button disabled={saving || !selectedTableId} type="submit">{saving ? "Assigning…" : "Assign table"}</button>
           </div>
         </form>
       </Modal>

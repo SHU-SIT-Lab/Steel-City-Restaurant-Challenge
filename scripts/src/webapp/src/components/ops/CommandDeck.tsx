@@ -38,6 +38,7 @@ export function CommandDeck({
   const [partySize, setPartySize] = useState(2);
   const [waypoint, setWaypoint] = useState("");
   const [reason, setReason] = useState("");
+  const [actionError, setActionError] = useState<string | null>(null);
 
   const executableOrders = useMemo(
     () => orders.filter((order) => !["delivered", "cancelled", "failed"].includes(order.status)),
@@ -72,6 +73,7 @@ export function CommandDeck({
     setPartySize(firstParty?.party_size ?? 2);
     setWaypoint("");
     setReason("");
+    setActionError(null);
   }
 
   function selectParty(party: EntranceParty) {
@@ -113,8 +115,13 @@ export function CommandDeck({
       reason,
     });
 
-    await onQueueCommand(payload);
-    setActiveCommand(null);
+    try {
+      await onQueueCommand(payload);
+      setActiveCommand(null);
+      setActionError(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not queue the command.");
+    }
   }
 
   return (
@@ -293,12 +300,13 @@ export function CommandDeck({
             <div className="command-preview">
               <span>Firestore command/task only; ROS bridge is not called yet.</span>
             </div>
+            {actionError ? <p className="form-error">{actionError}</p> : null}
             <div className="modal-actions">
               <button className="button button--ghost" onClick={() => setActiveCommand(null)} type="button">
                 Cancel
               </button>
               <button disabled={saving || missingRequirement} type="submit">
-                Queue command
+                {saving ? "Queuing…" : "Queue command"}
               </button>
             </div>
           </form>

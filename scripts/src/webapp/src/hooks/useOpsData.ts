@@ -91,7 +91,10 @@ export function useOpsData(): OpsDataState {
         await operation();
         await refresh();
       } catch (requestError) {
-        setError(requestError instanceof Error ? requestError.message : "Firestore mutation failed");
+        const message = requestError instanceof Error ? requestError.message : "Firestore mutation failed";
+        setError(message);
+        // Re-throw so the calling component can keep its modal open and show the error inline.
+        throw requestError instanceof Error ? requestError : new Error(message);
       } finally {
         setSaving(false);
       }

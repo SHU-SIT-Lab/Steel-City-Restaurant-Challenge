@@ -1,4 +1,4 @@
-import type { ReactNode } from "react";
+import { useEffect, useRef, type ReactNode } from "react";
 
 interface ModalProps {
   title: string;
@@ -9,6 +9,32 @@ interface ModalProps {
 }
 
 export function Modal({ title, eyebrow, open, children, onClose }: ModalProps) {
+  const sheetRef = useRef<HTMLElement>(null);
+
+  // Escape-to-close.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        onClose();
+      }
+    }
+    document.addEventListener("keydown", onKeyDown);
+    return () => document.removeEventListener("keydown", onKeyDown);
+  }, [open, onClose]);
+
+  // Move focus into the sheet on open; restore it to the trigger on close.
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    const previouslyFocused = document.activeElement as HTMLElement | null;
+    sheetRef.current?.focus();
+    return () => previouslyFocused?.focus?.();
+  }, [open]);
+
   if (!open) {
     return null;
   }
@@ -16,9 +42,12 @@ export function Modal({ title, eyebrow, open, children, onClose }: ModalProps) {
   return (
     <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
       <section
+        ref={sheetRef}
+        aria-label={title}
         aria-modal="true"
         className="modal-sheet"
         role="dialog"
+        tabIndex={-1}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="modal-header">

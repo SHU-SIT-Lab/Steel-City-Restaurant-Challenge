@@ -139,9 +139,15 @@ function TableActionSheet({
   const party = snapshot.entrance.find((candidate) => candidate.id === table.current_party);
   const order = snapshot.orders.find((candidate) => candidate.id === table.current_order);
 
+  const [statusError, setStatusError] = useState<string | null>(null);
+
   async function setStatus(status: TableStatus) {
-    await onUpdateTableStatus({ table_id: table.id, status });
-    onClose();
+    try {
+      await onUpdateTableStatus({ table_id: table.id, status });
+      onClose();
+    } catch (err) {
+      setStatusError(err instanceof Error ? err.message : "Could not update the table.");
+    }
   }
 
   return (
@@ -180,6 +186,7 @@ function TableActionSheet({
           />
         ))}
       </div>
+      {statusError ? <p className="form-error">{statusError}</p> : null}
     </div>
   );
 }

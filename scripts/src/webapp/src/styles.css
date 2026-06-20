@@ -252,6 +252,42 @@ dl {
   background: #1b5e3d;
 }
 
+/* Unmistakable indicator that the dashboard is showing demo data, not live Firestore. */
+.tag--demo {
+  color: #1a1205;
+  background: #f0b429;
+  border-color: #f0b429;
+  text-transform: none;
+  animation: demo-pulse 1.8s ease-in-out infinite;
+}
+
+@keyframes demo-pulse {
+  50% {
+    background: #f6cf63;
+  }
+}
+
+.form-error {
+  width: 100%;
+  border: 1px solid rgba(227, 93, 79, 0.4);
+  border-radius: 8px;
+  padding: 0.5rem 0.7rem;
+  color: #ffe3df;
+  background: rgba(116, 50, 43, 0.26);
+  font-size: 0.85rem;
+}
+
+.robot-card__pending {
+  margin-top: 0.5rem;
+  padding: 0.3rem 0.55rem;
+  border: 1px dashed rgba(216, 169, 79, 0.4);
+  border-radius: 6px;
+  color: #c9b27e;
+  background: rgba(216, 169, 79, 0.07);
+  font-size: 0.74rem;
+  font-weight: 700;
+}
+
 .status-pill--degraded,
 .tag--waiting,
 .tag--assigned,

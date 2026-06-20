@@ -49,6 +49,7 @@ export function OrdersBoard({
   const [selectedTableId, setSelectedTableId] = useState(tables[0]?.id ?? "");
   const [activeOrder, setActiveOrder] = useState<Order | null>(null);
   const [columnDetail, setColumnDetail] = useState<OrderStatus | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const [minimized, setMinimized] = useState<boolean>(() => {
     if (typeof window === "undefined") {
       return false;
@@ -82,18 +83,20 @@ export function OrdersBoard({
     setSelectedTableId(availableTables[0]?.id ?? tables[0]?.id ?? "");
     setSelectedItems(menu[0] ? { [menu[0].id]: 1 } : {});
     setNotes("");
+    setActionError(null);
     setCreateOpen(true);
   }
 
   async function handleCreateOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    await onCreateOrder({
-      table_id: selectedTableId,
-      notes,
-      items,
-    });
-    reset();
-    setCreateOpen(false);
+    try {
+      await onCreateOrder({ table_id: selectedTableId, notes, items });
+      reset();
+      setCreateOpen(false);
+      setActionError(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not create the order.");
+    }
   }
 
   async function handleOrderStatus(status?: OrderStatus) {
@@ -101,8 +104,13 @@ export function OrdersBoard({
       return;
     }
 
-    await onAdvanceOrder({ order_id: activeOrder.id, status });
-    setActiveOrder(null);
+    try {
+      await onAdvanceOrder({ order_id: activeOrder.id, status });
+      setActiveOrder(null);
+      setActionError(null);
+    } catch (err) {
+      setActionError(err instanceof Error ? err.message : "Could not update the order.");
+    }
   }
 
   // Shared card used both inline (capped) and inside the per-column "see all" modal.
@@ -120,6 +128,7 @@ export function OrdersBoard({
             disabled={!canAdvance || saving}
             onClick={() => {
               setColumnDetail(null);
+              setActionError(null);
               setActiveOrder(order);
             }}
           >
@@ -221,12 +230,13 @@ export function OrdersBoard({
             Order notes
             <textarea onChange={(event) => setNotes(event.target.value)} value={notes} />
           </label>
+          {actionError ? <p className="form-error">{actionError}</p> : null}
           <div className="modal-actions">
             <button className="button button--ghost" onClick={() => setCreateOpen(false)} type="button">
               Cancel
             </button>
             <button disabled={saving || !selectedTableId || itemCount === 0} type="submit">
-              Create order
+              {saving ? "Creating…" : "Create order"}
             </button>
           </div>
         </form>
@@ -264,6 +274,7 @@ export function OrdersBoard({
             <p className="empty-state">
               Current status: <strong>{activeOrder.status}</strong>
             </p>
+            {actionError ? <p className="form-error">{actionError}</p> : null}
             <div className="selection-grid">
               <OptionCard
                 disabled={saving}

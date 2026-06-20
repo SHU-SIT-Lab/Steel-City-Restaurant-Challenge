@@ -57,10 +57,18 @@ export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
           <h1>Place your order</h1>
         </div>
         <div className="customer-header__status">
-          {loading ? <span className="tag tag--waiting">Loading menu</span> : null}
-          <span className={`tag tag--${mode === "live" ? "live" : "waiting"}`}>
-            {mode === "live" ? "Live menu" : "Demo menu"}
-          </span>
+          {loading ? (
+            <span className="tag tag--waiting">Loading menu</span>
+          ) : mode === "mock" ? (
+            <span
+              className="tag tag--demo"
+              title="Couldn't reach Firestore — demo menu. Orders are not saved."
+            >
+              ⚠ DEMO — not saving
+            </span>
+          ) : (
+            <span className="tag tag--live">Live menu</span>
+          )}
           <span className="role-pill">
             {selectedTable ? tableLabel(selectedTable) : "No table"}
           </span>

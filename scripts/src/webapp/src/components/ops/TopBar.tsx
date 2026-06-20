@@ -28,9 +28,16 @@ export function TopBar({ role, robot, mode, loading, saving, error, onRefresh, o
       </div>
       <div className="top-bar__status">
         <span className={`status-pill status-pill--${healthTone}`}>{healthLabel}</span>
-        <span className={`tag tag--${mode === "live" ? "live" : "waiting"}`}>
-          {dataLabel}
-        </span>
+        {mode === "mock" && !loading ? (
+          <span
+            className="tag tag--demo"
+            title="Couldn't reach Firestore — showing demo data. Changes are not saved."
+          >
+            ⚠ DEMO DATA — not saving
+          </span>
+        ) : (
+          <span className={`tag tag--${mode === "live" ? "live" : "waiting"}`}>{dataLabel}</span>
+        )}
         {saving ? <span className="tag tag--waiting">Saving</span> : null}
         <span className="top-bar__meta">
           Robot <strong>{robot.name}</strong> / {robot.status} / {robot.battery_pct}%

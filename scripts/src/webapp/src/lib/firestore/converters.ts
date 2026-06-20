@@ -59,8 +59,16 @@ export function formatFirestoreTime(seconds?: number) {
     return "unknown";
   }
 
-  return new Intl.DateTimeFormat("en-GB", {
-    hour: "2-digit",
-    minute: "2-digit",
-  }).format(new Date(seconds * 1000));
+  const date = new Date(seconds * 1000);
+  const now = new Date();
+  const sameDay =
+    date.getFullYear() === now.getFullYear() &&
+    date.getMonth() === now.getMonth() &&
+    date.getDate() === now.getDate();
+  const options: Intl.DateTimeFormatOptions = { hour: "2-digit", minute: "2-digit" };
+  if (!sameDay) {
+    options.month = "short";
+    options.day = "numeric";
+  }
+  return new Intl.DateTimeFormat("en-GB", options).format(date);
 }
