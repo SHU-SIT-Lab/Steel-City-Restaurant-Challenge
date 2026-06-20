@@ -121,5 +121,35 @@ def run_headless(steps: int = 14, seed: int = 0, norms: gm.Norms | None = None) 
             break
 
 
+def run_norm_demo(seed: int = 1, steps: int = 12) -> None:
+    """Proof that a law-as-code norm is wired into the *service* agent (not just the
+    standalone law_as_code.py model): forbidding MARK_READY ("the robot may not mark
+    orders ready — only the kitchen may") flows through build_model -> AIFWaiter as a
+    B-mask, so the EFE agent drops that action from its policy."""
+    A, Benv = gm.build_A(), gm.build_B()
+    print(f"{'norm':<22} {'MARK_READY used':>16}   served")
+    for label, norms in (("(none)", None),
+                          ("forbid MARK_READY", gm.Norms(forbidden_actions=(gm.MARK_READY,)))):
+        rng = np.random.default_rng(seed)
+        waiter = AIFWaiter(norms=norms, seed=seed)
+        s = gm.s_idx(gm.EMPTY, gm.ENTRANCE)
+        actions = []
+        for _ in range(steps):
+            o = int(rng.choice(gm.N_OBS, p=A[:, s]))
+            a = waiter.act(o)
+            actions.append(a)
+            s = int(rng.choice(gm.N_STATE, p=Benv[:, s, a]))
+            if gm.s_unpack(s)[0] == gm.DELIVERED:
+                break
+        served = gm.s_unpack(s)[0] == gm.DELIVERED
+        print(f"{label:<22} {actions.count(gm.MARK_READY):>16}   {served}")
+    print("\nThe agent obeys the norm (0 uses when forbidden). On this single-table")
+    print("model the kitchen-wait alternative is observability-limited, so the full")
+    print("behavioural law-as-code demo lives in law_as_code.py (2-table precedence).")
+
+
 if __name__ == "__main__":
+    print("=== service agent: serve one table by EFE ===")
     run_headless()
+    print("\n=== law-as-code norm wired into the service agent ===")
+    run_norm_demo()

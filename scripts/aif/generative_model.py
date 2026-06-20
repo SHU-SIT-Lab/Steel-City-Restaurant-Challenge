@@ -171,7 +171,15 @@ def apply_norms(C: np.ndarray, norms: Norms) -> tuple[np.ndarray, np.ndarray]:
 
 
 def build_model(norms: Norms | None = None):
-    """Convenience: return (A, B, C, D, E) ready for a pymdp Agent."""
+    """Return (A, B, C, D, E) ready for a pymdp Agent, with norms compiled in:
+    obs_penalties -> C (soft), forbidden_actions -> a hard B-mask (the action
+    becomes a no-op so the EFE agent gets no benefit from it and won't use it).
+    These flow straight into AIFWaiter, so a norm changes the real agent's policy.
+    (action_priors -> E over policies is not yet wired: with policy_len>1 the
+    Agent's E is over policy sequences, not single actions.)"""
+    norms = norms or Norms()
     A, B, C, D = build_A(), build_B(), build_C(), build_D()
-    C, E = apply_norms(C, norms or Norms())
+    C, E = apply_norms(C, norms)
+    for a in norms.forbidden_actions:
+        B[:, :, a] = np.eye(N_STATE)   # hard norm: forbidden action = no-op
     return A, B, C, D, E

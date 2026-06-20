@@ -95,6 +95,15 @@ to fairness where the norm outweighs the efficiency gain. These are the
 compiled into the generative model and conditioned on restaurant context, not
 bolted on as rules.
 
+**Wired into the service agent too.** The same `Norms` seam feeds the main
+`AIFWaiter`, not only this standalone model: `forbidden_actions` compile to a
+B-mask in `generative_model.build_model`, so a norm changes the *real* service
+agent's policy. `python scripts/aif/aif_coordinator.py` shows forbidding
+`MARK_READY` ("only the kitchen may mark orders ready") drops it from the agent's
+actions (1 → 0 uses). The single-table service model has no clean alternative
+path, so the *behavioural* law-as-code story lives in this 2-table model;
+unifying them is the multi-table service-model work.
+
 ## Status
 **Validated end-to-end**: the JAX agent constructs, infers, and drives a table
 EMPTY -> DELIVERED optimally (10/10 seeds, 6 steps). The serve *order* emerges
