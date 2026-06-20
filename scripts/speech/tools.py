@@ -104,7 +104,7 @@ TOOLS = [
                         "type": "string",
                         "description": (
                             "Where to go. Examples: 'table_1', 'table_2', "
-                            "'kitchen_bar', 'entrance'."
+                            "'barista', 'entrance'."
                         ),
                     }
                 },

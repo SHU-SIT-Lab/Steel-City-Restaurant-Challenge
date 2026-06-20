@@ -13,6 +13,7 @@ from behaviors.database_bridge import (
 	table_empty_status,
 	table_id_to_location,
 )
+from behaviors.speech_utils import bind_context_interfaces, vision_table_empty
 
 
 class CheckEmptyTableBehavior(DeliberativeBehavior):
@@ -25,6 +26,7 @@ class CheckEmptyTableBehavior(DeliberativeBehavior):
 		self.db = RestaurantDatabase()
 
 	def plan(self, ctx: Any) -> None:
+		bind_context_interfaces(self, ctx)
 		state = shared_state(ctx)
 		table_id = state.get("current_table_id")
 		if table_id is None:
@@ -40,15 +42,10 @@ class CheckEmptyTableBehavior(DeliberativeBehavior):
 			set_navigation_target(ctx, table_location, table_id=table_id)
 			return
 
-		if self.object_detection is not None:
-			self.object_detection.current_table_id = table_id
-
 		table_empty = state.get("table_empty")
-		if table_empty is None and self.object_detection is not None:
-			table_empty = getattr(self.object_detection, "table_empty", None)
+		if table_empty is None:
+			table_empty = vision_table_empty(self.object_detection, table_id)
 
-		if isinstance(table_empty, dict):
-			table_empty = table_empty.get(table_id)
 		if table_empty is None:
 			return
 

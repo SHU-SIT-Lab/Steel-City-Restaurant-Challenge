@@ -7,6 +7,7 @@ from typing import Any, Optional
 
 from behaviors.behaviors import DeliberativeBehavior
 from behaviors.database_bridge import RestaurantDatabase, shared_state
+from behaviors.speech_utils import bind_context_interfaces
 from models import TableStatus
 
 
@@ -20,6 +21,7 @@ class MarkOrderReadyBehavior(DeliberativeBehavior):
 		self.db = RestaurantDatabase()
 
 	def plan(self, ctx: Any) -> None:
+		bind_context_interfaces(self, ctx)
 		try:
 			table_id = self._get_table_with_pending_order(ctx)
 			if table_id is None:

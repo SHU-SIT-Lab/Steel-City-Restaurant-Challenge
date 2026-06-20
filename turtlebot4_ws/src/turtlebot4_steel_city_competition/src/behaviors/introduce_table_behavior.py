@@ -13,6 +13,7 @@ from behaviors.database_bridge import (
 	shared_state,
 	table_id_to_location,
 )
+from behaviors.speech_utils import bind_context_interfaces, say
 
 
 class IntroduceTableBehavior(DeliberativeBehavior):
@@ -25,6 +26,7 @@ class IntroduceTableBehavior(DeliberativeBehavior):
 		self.db = RestaurantDatabase()
 
 	def plan(self, ctx: Any) -> None:
+		bind_context_interfaces(self, ctx)
 		if not self.db.should_guide_customer_to_table():
 			return
 
@@ -47,8 +49,16 @@ class IntroduceTableBehavior(DeliberativeBehavior):
 		except Exception as exc:
 			print(f"[INTRODUCE_TABLE] Firestore write failed ({exc}).")
 
-		# TODO: Navigation team — entrance first, then next_target_location (table).
-		# TODO: LLM — guide customer and explain how to order.
+		say(
+			self,
+			f"Please follow me to table {table_id + 1}.",
+			tag="INTRODUCE_TABLE",
+		)
+		say(
+			self,
+			"Please have a seat. When you are ready, I will take your order.",
+			tag="INTRODUCE_TABLE",
+		)
 
 	def compute_priority(self) -> float:
 		self.guide_customer = 1 if self.db.should_guide_customer_to_table() else 0

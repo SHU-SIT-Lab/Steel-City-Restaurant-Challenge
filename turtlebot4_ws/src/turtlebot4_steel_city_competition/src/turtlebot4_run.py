@@ -11,7 +11,6 @@ import rclpy
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
-# Make sibling modules in src importable when this script is run directly.
 SRC_DIR = Path(__file__).resolve().parent
 if str(SRC_DIR) not in sys.path:
 	sys.path.insert(0, str(SRC_DIR))
@@ -25,11 +24,12 @@ from behaviors.behaviors import (
 from behaviors.check_customer_behavior import CheckCustomerBehavior
 from behaviors.check_empty_table_behavior import CheckEmptyTableBehavior
 from behaviors.collect_order_behavior import CollectOrderBehavior
+from behaviors.database_bridge import RestaurantDatabase
 from behaviors.introduce_table_behavior import IntroduceTableBehavior
 from behaviors.mark_order_ready_behavior import MarkOrderReadyBehavior
+from behaviors.navigation_handoff import drive_navigation
 from behaviors.take_order_behavior import TakeOrderBehavior
 from behaviors.update_customer_number_behavior import CheckCustomerNumberBehavior
-
 
 
 class ReactiveCoordinator(Node):
@@ -40,20 +40,26 @@ class ReactiveCoordinator(Node):
 		self._behavior_queue: Deque[str] = deque()
 		self.first_behavior: Optional[str] = None
 		self._first_behavior_done = False
-		self.shared_state: Dict[str, Optional[str]] = {
+		self.shared_state: Dict[str, object] = {
 			"customer_present": None,
 			"table_empty": None,
 			"last_speech_text": None,
+			"target_location": None,
+			"next_target_location": None,
+			"_last_navigated_location": None,
 		}
+		self.db = RestaurantDatabase()
 		vision = _get_shared_object_detection()
 		self.ctx: Dict[str, object] = {
 			"shared_state": self.shared_state,
 			"object_detection": vision,
+			"database": self.db,
+			"restaurant_database": self.db,
+			"speech_to_text": _get_shared_speech_to_text(),
+			"text_to_speech": _get_shared_text_to_speech(),
 		}
 
-		# Register behaviors and pick the first one to run at startup.
 		self._register_default_behaviors()
-
 		self.create_timer(0.1, self._reactive_step)
 
 	def _register_default_behaviors(self) -> None:
@@ -66,7 +72,7 @@ class ReactiveCoordinator(Node):
 		self.register_behavior(CheckCustomerNumberBehavior())
 		self.first_behavior = "check_customer"
 		self.set_priority_behavior("check_customer")
-		self.get_logger().info("Registered sample customer-check behaviors.")
+		self.get_logger().info("Registered competition behaviors.")
 
 	def register_behavior(self, behavior: DeliberativeBehavior) -> None:
 		self._behaviors.append(behavior)
@@ -126,6 +132,7 @@ class ReactiveCoordinator(Node):
 		self.ctx["selected_behavior"] = behavior_name
 		try:
 			behavior.run(self.ctx)
+			drive_navigation(self.ctx, self.ctx.get("navigation"))
 		except Exception as exc:
 			self.get_logger().error(f"Behavior '{behavior.name}' failed: {exc}")
 
@@ -134,10 +141,20 @@ def build_nodes() -> List[Node]:
 	coordinator = ReactiveCoordinator()
 	nodes: List[Node] = [coordinator]
 
-	# Add the SAME shared action-node instances the behaviors use, so the
-	# executor actually spins them. Otherwise the behaviors hold one instance
-	# while the executor spins a different one, the mic callback never runs,
-	# and get_next_utterance() always times out.
+	try:
+		from navigation.navigation_client import NavigationClient
+
+		nav_client = NavigationClient()
+		coordinator.ctx["navigation"] = nav_client
+		coordinator.ctx["navigator"] = nav_client
+		coordinator.ctx["nav"] = nav_client
+		nodes.append(nav_client)
+		coordinator.get_logger().info("NavigationClient connected to /navigation/navigate_to_waypoint")
+	except Exception as exc:
+		coordinator.get_logger().warn(
+			f"NavigationClient unavailable ({exc}). Behaviors will log stub navigation."
+		)
+
 	for getter in (
 		_get_shared_object_detection,
 		_get_shared_speech_to_text,

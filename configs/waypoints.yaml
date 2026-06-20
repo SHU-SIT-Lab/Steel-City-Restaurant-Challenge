@@ -1,5 +1,6 @@
 # Named poses for restaurant navigation (map frame).
 # Update x/y/yaw after mapping the competition arena.
+# Record missing (0,0,0) entries with: python3 scripts/nav/record_waypoints.py
 
 entrance:
   x: 0.0
@@ -21,6 +22,14 @@ table_3:
   x: 0.7038
   y: -1.6052
   yaw: 1.0427
+table_4:
+  x: 0.0
+  y: 0.0
+  yaw: 0.0
+table_5:
+  x: 0.0
+  y: 0.0
+  yaw: 0.0
 docking_station:
   x: 0.0
   y: 0.0

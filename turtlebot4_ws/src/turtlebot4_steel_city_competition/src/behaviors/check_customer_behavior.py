@@ -7,10 +7,11 @@ from typing import Any
 
 from behaviors.behaviors import DeliberativeBehavior
 from behaviors.database_bridge import ENTRANCE_LOCATION, RestaurantDatabase, get_bool, set_navigation_target, shared_state
+from behaviors.speech_utils import bind_context_interfaces, vision_people_detected
 
 
 class CheckCustomerBehavior(DeliberativeBehavior):
-	"""Minimal example behavior with TODO markers for implementation."""
+	"""Detect customers at the entrance and update Firestore."""
 
 	def __init__(self) -> None:
 		super().__init__(name="check_customer")
@@ -19,6 +20,7 @@ class CheckCustomerBehavior(DeliberativeBehavior):
 		self.db = RestaurantDatabase()
 
 	def plan(self, ctx: Any) -> None:
+		bind_context_interfaces(self, ctx)
 		set_navigation_target(ctx, ENTRANCE_LOCATION)
 		state = shared_state(ctx)
 
@@ -26,10 +28,8 @@ class CheckCustomerBehavior(DeliberativeBehavior):
 			self.object_detection.current_table_id = None
 
 		detected = state.get("customer_present")
-		if detected is None and self.object_detection is not None:
-			detected = getattr(self.object_detection, "customer_present", False)
 		if detected is None:
-			detected = False
+			detected = vision_people_detected(self.object_detection)
 
 		state["customer_present"] = detected
 		try:
