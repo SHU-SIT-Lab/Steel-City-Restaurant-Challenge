@@ -1,5 +1,5 @@
 import { useMemo, useState, type FormEvent } from "react";
-import { normalizeOrderItems, tableLabel } from "../../lib/firestore/converters";
+import { findOrderTable, normalizeOrderItems, tableLabel } from "../../lib/firestore/converters";
 import { canUpdateOrders, hasMinimumRole } from "../../lib/rbac";
 import type { MenuItem, Order, OrderStatus, Role, Table } from "../../types/firestore";
 import type { AdvanceOrderInput, CreateOrderInput } from "../../lib/api/client";
@@ -107,7 +107,7 @@ export function OrdersBoard({
 
   // Shared card used both inline (capped) and inside the per-column "see all" modal.
   function renderOrderCard(order: Order, status: OrderStatus) {
-    const table = tables.find((candidate) => candidate.id === order.table_id);
+    const table = findOrderTable(order.table_id, tables);
     const orderItems = normalizeOrderItems(order.items, menu);
     const canAdvance = status === "ready" ? hasMinimumRole(role, "manager") : canUpdateOrders(role);
 

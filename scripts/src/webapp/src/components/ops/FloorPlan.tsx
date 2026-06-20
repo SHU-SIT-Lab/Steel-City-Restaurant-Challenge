@@ -20,10 +20,12 @@ function hasFinitePose(table: Table): boolean {
 // grid across the lower portion of the canvas (clear of the entrance/kitchen
 // zones up top and the robot marker), so the map is readable without pose data.
 function tablePosition(table: Table, index: number, total: number): { left: string; top: string } {
-  if (hasFinitePose(table)) {
+  const px = table.pose_x;
+  const py = table.pose_y;
+  if (typeof px === "number" && Number.isFinite(px) && typeof py === "number" && Number.isFinite(py)) {
     return {
-      left: `${Math.min(table.pose_x * 12, 78)}%`,
-      top: `${Math.min(table.pose_y * 18, 78)}%`,
+      left: `${Math.min(px * 12, 78)}%`,
+      top: `${Math.min(py * 18, 78)}%`,
     };
   }
   const cols = Math.min(Math.max(total, 1), 3);

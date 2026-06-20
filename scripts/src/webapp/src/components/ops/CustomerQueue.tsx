@@ -2,6 +2,7 @@ import { useMemo, useState, type FormEvent } from "react";
 import { hasMinimumRole } from "../../lib/rbac";
 import type { EntranceParty, Role, Table } from "../../types/firestore";
 import type { AssignPartyInput, CreatePartyInput } from "../../lib/api/client";
+import { tableLabel } from "../../lib/firestore/converters";
 import { Modal, OptionCard } from "../ui/Modal";
 
 interface CustomerQueueProps {
@@ -33,7 +34,7 @@ export function CustomerQueue({
   const [selectedTableId, setSelectedTableId] = useState<string>("");
 
   const recommendedTable = useMemo(
-    () => availableTables.find((table) => table.table_number >= partySize) ?? availableTables[0],
+    () => availableTables.find((table) => (table.table_number ?? 0) >= partySize) ?? availableTables[0],
     [availableTables, partySize],
   );
 
@@ -86,7 +87,7 @@ export function CustomerQueue({
               </div>
               <div className="queue-item__meta">
                 <span className={`tag tag--${party.status}`}>{party.status}</span>
-                <span>{assignedTable ? `Table ${assignedTable.table_number}` : "Unassigned"}</span>
+                <span>{assignedTable ? tableLabel(assignedTable) : "Unassigned"}</span>
               </div>
               <p>{party.notes || "No staff notes"}</p>
               <button
@@ -156,10 +157,10 @@ export function CustomerQueue({
               {availableTables.map((table) => (
                 <OptionCard
                   key={table.id}
-                  meta={`Pose ${table.pose_x}, ${table.pose_y}`}
+                  meta={table.status.replace("_", " ")}
                   onClick={() => setSelectedTableId(table.id)}
                   selected={selectedTableId === table.id}
-                  title={`Table ${table.table_number}`}
+                  title={tableLabel(table)}
                 />
               ))}
             </div>

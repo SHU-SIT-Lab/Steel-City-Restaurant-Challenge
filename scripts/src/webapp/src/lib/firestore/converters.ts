@@ -15,6 +15,22 @@ export function tableLabel(table: Table): string {
   return `Table ${table.id}`;
 }
 
+// Resolve an order's table_id to a table doc. Webapp orders use the table doc id
+// (e.g. "0"); robot orders use "t_01"-style ids. Match by id, then by numeric
+// table_id / the embedded number, so robot orders still link to a table.
+export function findOrderTable(tableId: string, tables: Table[]): Table | undefined {
+  const direct = tables.find((table) => table.id === tableId);
+  if (direct) {
+    return direct;
+  }
+  const match = /(\d+)/.exec(tableId);
+  if (match) {
+    const n = String(Number(match[1]));
+    return tables.find((table) => table.id === n || String(table.table_id ?? "") === n);
+  }
+  return undefined;
+}
+
 export function normalizeOrderItems(
   items: LegacyOrderItem[],
   menu: MenuItem[],

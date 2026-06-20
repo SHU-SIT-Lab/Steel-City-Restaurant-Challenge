@@ -67,15 +67,24 @@ export interface EntranceParty {
 
 export interface Table {
   id: string;
-  table_number: number;
   status: TableStatus;
-  pose_x: number;
-  pose_y: number;
-  pose_theta: number;
-  current_order: string | null;
+  // The webapp's intended schema — present in mock data, but sparse/absent in the
+  // live robot-written docs, so optional to match runtime reality.
+  table_number?: number;
+  pose_x?: number;
+  pose_y?: number;
+  pose_theta?: number;
+  current_order?: string | null;
   current_party?: string | null;
   occupied_since?: FirestoreTimestamp | null;
-  last_updated: FirestoreTimestamp;
+  last_updated?: FirestoreTimestamp;
+  // Robot-side table schema (live docs carry these instead of pose/table_number).
+  table_id?: number | string;
+  has_ordered?: boolean;
+  order_ready?: boolean;
+  order_delivered?: boolean;
+  order_items?: LegacyOrderItem[];
+  order_notes?: string;
 }
 
 export interface MenuItem {

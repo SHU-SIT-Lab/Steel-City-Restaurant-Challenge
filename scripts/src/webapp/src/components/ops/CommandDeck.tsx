@@ -3,6 +3,7 @@ import { hasRole } from "../../lib/rbac";
 import type { CommandDefinition } from "../../types/commands";
 import type { EntranceParty, Order, Robot, Role, Table } from "../../types/firestore";
 import type { QueueCommandInput } from "../../lib/api/client";
+import { tableLabel } from "../../lib/firestore/converters";
 import { Modal, OptionCard } from "../ui/Modal";
 
 interface CommandDeckProps {
@@ -198,7 +199,7 @@ export function CommandDeck({
                         meta={table.status.replace("_", " ")}
                         onClick={() => setSelectedTableId(table.id)}
                         selected={selectedTableId === table.id}
-                        title={`Table ${table.table_number}`}
+                        title={tableLabel(table)}
                       />
                     ))}
                 </div>

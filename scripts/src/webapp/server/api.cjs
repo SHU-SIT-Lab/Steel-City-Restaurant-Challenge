@@ -252,6 +252,13 @@ async function handleSnapshot(_req, res) {
     return;
   }
 
+  // Still warming up after the cold-start wait: tell the client to keep using mock
+  // and back off, rather than serving a half-empty cache as if it were live.
+  if (listeners.pending.size > 0) {
+    sendJson(res, 503, { error: "Firestore snapshot is warming up" });
+    return;
+  }
+
   sendJson(res, 200, {
     mode: "live",
     role: process.env.WEBAPP_DEFAULT_ROLE || "manager",
