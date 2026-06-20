@@ -49,24 +49,18 @@ def law_order(customers, busy: float = 0.0, fairness_lambda: float = 1.0):
     return sorted(customers, key=lambda c: law_score(c, busy, fairness_lambda), reverse=True)
 
 
-def serve_one(seed: int = 0, max_steps: int = 16) -> bool:
-    """Serve one customer through the six phases via the V1 EFE agent."""
-    import jax
-    import jax.numpy as jnp
-
-    agent = gp.make_agent()
-    B = gp.build_B()
-    key = jax.random.PRNGKey(seed)
-    s = gp.s_idx(gp.DETECTED, gp.ENTRANCE)
-    prior = list(agent.D)
+def serve_one(seed: int = 0, max_steps: int = 18) -> bool:
+    """Serve one customer through the six phases via the V1 partial-observation
+    agent (location-gated noisy phase_evidence — the robot navigates to perceive)."""
+    rng = np.random.default_rng(seed)
+    waiter = gp.PhaseWaiter(seed=seed)
+    A, B = gp.build_A(), gp.build_B()
+    true_s = gp.s_idx(gp.DETECTED, gp.ENTRANCE)
     for _ in range(max_steps):
-        qs = agent.infer_states([jnp.array([s])], prior)
-        q_pi, _ = agent.infer_policies(qs)
-        key, sub = jax.random.split(key)
-        a = int(np.asarray(agent.sample_action(q_pi, rng_key=sub[None, :])).ravel()[0])
-        s = int(np.argmax(B[:, s, a]))
-        prior = [jnp.array(np.eye(gp.N_STATE)[s][None, :])]
-        if gp.s_unpack(s)[0] == gp.STANDBY:
+        o = int(rng.choice(gp.N_OBS, p=A[:, true_s]))
+        a = waiter.act(o)
+        true_s = int(np.argmax(B[:, true_s, a]))
+        if gp.s_unpack(true_s)[0] == gp.STANDBY:
             return True
     return False
 
