@@ -1,4 +1,14 @@
 #!/bin/bash
+# WSL2 variant of run_container.sh.
+#
+# Differences from the native-Linux script:
+#   - GUI via WSLg: no xhost/xauth dance; mount /mnt/wslg and pass DISPLAY +
+#     WAYLAND_DISPLAY + XDG_RUNTIME_DIR so RViz / the waypoint GUI render.
+#   - Assumes Docker Engine running inside WSL and WSL2 mirrored networking
+#     (so --net=host reaches the robot on the Wi-Fi subnet).
+#
+# Robot IP resolution matches run_container.sh: positional arg > exported
+# ROBOT_IP > docker/nav.env default > interactive prompt.
 set -euo pipefail
 
 IMAGE_NAME="steel-city-jazzy:latest"
@@ -7,16 +17,9 @@ DO_BUILD=0
 
 usage() {
     cat <<'EOF'
-Usage: ./docker/run_container.sh [--build] [ROBOT_IP]
-
-Arguments:
-  ROBOT_IP     TurtleBot4 RPi Wi-Fi IP (optional; prompts if omitted)
-
-Environment:
-  ROBOT_IP     Same as the positional argument (positional takes precedence)
-
-Options:
-  --build      Rebuild the Docker image before starting the container
+Usage: ./docker/run_container_wsl.sh [--build] [ROBOT_IP]
+  ROBOT_IP   TurtleBot4 RPi Wi-Fi IP (optional; defaults from docker/nav.env)
+  --build    Rebuild the image before starting
 EOF
 }
 
@@ -27,24 +30,11 @@ validate_ipv4() {
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --build)
-            DO_BUILD=1
-            shift
-            ;;
-        -h|--help)
-            usage
-            exit 0
-            ;;
+        --build) DO_BUILD=1; shift ;;
+        -h|--help) usage; exit 0 ;;
         *)
-            if validate_ipv4 "$1"; then
-                ROBOT_IP="$1"
-                shift
-            else
-                echo "Invalid ROBOT_IP: $1" >&2
-                usage
-                exit 1
-            fi
-            ;;
+            if validate_ipv4 "$1"; then ROBOT_IP="$1"; shift
+            else echo "Invalid ROBOT_IP: $1" >&2; usage; exit 1; fi ;;
     esac
 done
 
@@ -61,12 +51,13 @@ fi
 if [[ -z "${ROBOT_IP:-}" ]]; then
     while true; do
         read -r -p "Discovery Server IP (TurtleBot4 RPi Wi-Fi IP): " ROBOT_IP
-        if validate_ipv4 "$ROBOT_IP"; then
-            export ROBOT_IP
-            break
-        fi
-        echo "Invalid IP address. Example: 192.168.1.150"
+        if validate_ipv4 "$ROBOT_IP"; then break; fi
+        echo "Invalid IP address. Example: 192.168.8.111"
     done
+fi
+
+if [[ ! -e /mnt/wslg ]]; then
+    echo "[WARN] /mnt/wslg not found — are you inside WSL? GUI apps may not render." >&2
 fi
 
 if [[ "$DO_BUILD" -eq 1 ]]; then
@@ -78,30 +69,24 @@ if ! docker image inspect "$IMAGE_NAME" >/dev/null 2>&1; then
     exit 1
 fi
 
-if command -v xhost >/dev/null 2>&1; then
-    xhost local:root >/dev/null 2>&1 || true
-fi
-
-XAUTH=/tmp/.docker.xauth
 CURRENT_DIR="$(pwd)"
-
-sudo touch "$XAUTH"
-xauth nlist "$DISPLAY" 2>/dev/null | sed -e 's/^..../ffff/' | xauth -f "$XAUTH" nmerge - 2>/dev/null || true
 
 docker rm -f "$CONTAINER_NAME" >/dev/null 2>&1 || true
 
 docker run -it \
     --name="$CONTAINER_NAME" \
     --env="DISPLAY=${DISPLAY:-:0}" \
+    --env="WAYLAND_DISPLAY=${WAYLAND_DISPLAY:-wayland-0}" \
+    --env="XDG_RUNTIME_DIR=${XDG_RUNTIME_DIR:-/mnt/wslg/runtime-dir}" \
+    --env="PULSE_SERVER=${PULSE_SERVER:-/mnt/wslg/PulseServer}" \
     --env="QT_X11_NO_MITSHM=1" \
     --env="ROBOT_IP=${ROBOT_IP}" \
     --env="ROS_DOMAIN_ID=${ROS_DOMAIN_ID:-0}" \
-    --env="XAUTHORITY=$XAUTH" \
     --env="NVIDIA_DRIVER_CAPABILITIES=all" \
     --env="NVIDIA_VISIBLE_DEVICES=all" \
     --volume="/tmp/.X11-unix:/tmp/.X11-unix:rw" \
+    --volume="/mnt/wslg:/mnt/wslg:rw" \
     --volume="$CURRENT_DIR:/root/docker-ws" \
-    --volume="$XAUTH:$XAUTH" \
     --net=host \
     --privileged \
     --gpus all \
