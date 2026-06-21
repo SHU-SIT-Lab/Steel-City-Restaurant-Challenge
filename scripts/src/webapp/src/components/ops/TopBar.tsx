@@ -1,9 +1,10 @@
 import type { Robot, Role } from "../../types/firestore";
+import type { OpsMode } from "../../hooks/useOpsData";
 
 interface TopBarProps {
   role: Role;
   robot: Robot;
-  mode: "live" | "mock";
+  mode: OpsMode;
   loading: boolean;
   saving: boolean;
   error: string | null;
@@ -18,7 +19,13 @@ export function TopBar({ role, robot, mode, loading, saving, error, onRefresh, o
       ? "Degraded"
       : "System OK";
   const healthTone = healthLabel === "Degraded" ? "degraded" : "live";
-  const dataLabel = loading ? "Connecting" : mode === "live" ? "Firestore connected" : "Mock data";
+  const dataLabel = loading
+    ? "Connecting"
+    : mode === "live"
+      ? "Firestore connected"
+      : mode === "cached"
+        ? "Cached · reconnecting"
+        : "Mock data";
 
   return (
     <header className="top-bar">
@@ -34,6 +41,13 @@ export function TopBar({ role, robot, mode, loading, saving, error, onRefresh, o
             title="Couldn't reach Firestore — showing demo data. Changes are not saved."
           >
             ⚠ DEMO DATA — not saving
+          </span>
+        ) : mode === "cached" ? (
+          <span
+            className="tag tag--cached"
+            title="Showing the last data received from Firestore while it refreshes."
+          >
+            ↻ Cached
           </span>
         ) : (
           <span className={`tag tag--${mode === "live" ? "live" : "waiting"}`}>{dataLabel}</span>

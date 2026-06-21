@@ -18,6 +18,7 @@ import {
   type UpdateTableInput,
 } from "../lib/api/client";
 import { mockSnapshot } from "../data/mockFirestore";
+import { loadCachedSnapshot, saveCachedSnapshot } from "../lib/snapshotCache";
 import type { OpsSnapshot } from "../types/firestore";
 
 // Poll the snapshot on an interval that backs off on errors and pauses when the tab
@@ -36,9 +37,11 @@ export interface OpsActions {
   queueCommand: (input: QueueCommandInput) => Promise<void>;
 }
 
+export type OpsMode = "live" | "cached" | "mock";
+
 export interface OpsDataState {
   snapshot: OpsSnapshot;
-  mode: "live" | "mock";
+  mode: OpsMode;
   loading: boolean;
   saving: boolean;
   error: string | null;
@@ -59,9 +62,13 @@ function withDefaults(snapshot: SnapshotResponse): OpsSnapshot {
 }
 
 export function useOpsData(): OpsDataState {
-  const [snapshot, setSnapshot] = useState<OpsSnapshot>({ ...mockSnapshot, role: envRole() });
-  const [mode, setMode] = useState<"live" | "mock">("mock");
-  const [loading, setLoading] = useState(true);
+  // Seed from the last cached live snapshot (if any) so a page refresh shows real
+  // data immediately instead of mock / a "Connecting" flash. Loaded once per mount.
+  const [cached] = useState<OpsSnapshot | null>(() => loadCachedSnapshot());
+
+  const [snapshot, setSnapshot] = useState<OpsSnapshot>(() => cached ?? { ...mockSnapshot, role: envRole() });
+  const [mode, setMode] = useState<OpsMode>(cached ? "cached" : "mock");
+  const [loading, setLoading] = useState(!cached);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const failuresRef = useRef(0);
@@ -69,12 +76,15 @@ export function useOpsData(): OpsDataState {
   const refresh = useCallback(async () => {
     try {
       const response = await fetchSnapshot();
-      setSnapshot(withDefaults(response));
-      setMode(response.mode);
+      const next = withDefaults(response);
+      setSnapshot(next);
+      setMode("live");
+      saveCachedSnapshot(next);
       setError(null);
       failuresRef.current = 0;
     } catch (requestError) {
-      setMode("mock");
+      // Keep showing the last real data (cached) rather than dropping to mock.
+      setMode((previous) => (previous === "mock" ? "mock" : "cached"));
       setError(requestError instanceof Error ? requestError.message : "Unable to load Firestore snapshot");
       failuresRef.current += 1;
     } finally {

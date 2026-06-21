@@ -66,6 +66,13 @@ export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
             >
               ⚠ DEMO — not saving
             </span>
+          ) : mode === "cached" ? (
+            <span
+              className="tag tag--cached"
+              title="Showing the last menu received from Firestore while it refreshes."
+            >
+              ↻ Cached menu
+            </span>
           ) : (
             <span className="tag tag--live">Live menu</span>
           )}

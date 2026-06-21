@@ -267,6 +267,21 @@ dl {
   }
 }
 
+/* Calm indicator that we're showing the last cached snapshot while reconnecting. */
+.tag--cached {
+  color: #dceaef;
+  background: #244a54;
+  border-color: rgba(123, 161, 170, 0.55);
+  text-transform: none;
+  animation: cached-pulse 2s ease-in-out infinite;
+}
+
+@keyframes cached-pulse {
+  50% {
+    opacity: 0.7;
+  }
+}
+
 .form-error {
   width: 100%;
   border: 1px solid rgba(227, 93, 79, 0.4);
