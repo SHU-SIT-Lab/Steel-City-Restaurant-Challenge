@@ -1117,6 +1117,59 @@ dd {
   color: #8ad8a6;
 }
 
+/* Set-menu chooser: component summary + description on each card. */
+.menu-grid--set {
+  grid-template-columns: repeat(auto-fill, minmax(190px, 1fr));
+}
+
+.menu-choice .menu-choice__components {
+  color: #c7d3cb;
+  font-weight: 700;
+}
+
+.menu-choice .menu-choice__desc {
+  color: #93a39a;
+  font-weight: 500;
+  font-size: 0.78rem;
+  line-height: 1.3;
+}
+
+/* Optional condiments — toggle chips that fold into the order notes. */
+.customer-condiments {
+  margin-top: 0.85rem;
+  display: grid;
+  gap: 0.4rem;
+}
+
+.condiment-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+.condiment-chip {
+  padding: 0.4rem 0.85rem;
+  border-radius: 999px;
+  border: 1px solid rgba(238, 244, 236, 0.18);
+  background: #18211f;
+  color: #c7d3cb;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.condiment-chip--on {
+  border-color: rgba(79, 179, 109, 0.6);
+  background: rgba(79, 179, 109, 0.18);
+  color: #8ad8a6;
+}
+
+.cart-components {
+  margin: 0;
+  color: #93a39a;
+  font-size: 0.8rem;
+  line-height: 1.35;
+}
+
 .customer-cart {
   display: grid;
   grid-template-rows: auto 1fr auto;

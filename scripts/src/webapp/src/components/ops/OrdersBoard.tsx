@@ -56,8 +56,21 @@ export function OrdersBoard({
     }
     return window.localStorage.getItem(MINIMIZED_STORAGE_KEY) === "1";
   });
-  const { selectedItems, setSelectedItems, notes, setNotes, toggleItem, changeQuantity, items, itemCount, reset } =
-    useOrderDraft(menu);
+  const {
+    setMenus,
+    condimentItems,
+    selectedMenuId,
+    setSelectedMenuId,
+    selectMenu,
+    condiments,
+    toggleCondiment,
+    notes,
+    setNotes,
+    items,
+    composedNotes,
+    hasSelection,
+    reset,
+  } = useOrderDraft(menu);
   const availableTables = useMemo(
     () => tables.filter((table) => table.status !== "unavailable"),
     [tables],
@@ -81,8 +94,8 @@ export function OrdersBoard({
 
   function openCreateOrder() {
     setSelectedTableId(availableTables[0]?.id ?? tables[0]?.id ?? "");
-    setSelectedItems(menu[0] ? { [menu[0].id]: 1 } : {});
-    setNotes("");
+    reset();
+    setSelectedMenuId(setMenus[0]?.id ?? null);
     setActionError(null);
     setCreateOpen(true);
   }
@@ -90,7 +103,7 @@ export function OrdersBoard({
   async function handleCreateOrder(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     try {
-      await onCreateOrder({ table_id: selectedTableId, notes, items });
+      await onCreateOrder({ table_id: selectedTableId, notes: composedNotes, items });
       reset();
       setCreateOpen(false);
       setActionError(null);
@@ -203,28 +216,48 @@ export function OrdersBoard({
             </div>
           </div>
           <div>
-            <span className="field-label">Menu items</span>
-            <div className="menu-grid">
-              {menu.map((item) => {
-                const quantity = selectedItems[item.id] ?? 0;
+            <span className="field-label">Set menu</span>
+            <div className="menu-grid menu-grid--set">
+              {setMenus.map((item) => {
+                const selected = selectedMenuId === item.id;
+                const components = (item.components ?? []).map((component) => component.name);
 
                 return (
-                  <article className={`menu-choice ${quantity ? "menu-choice--selected" : ""}`} key={item.id}>
-                    <button onClick={() => toggleItem(item)} type="button">
+                  <article className={`menu-choice ${selected ? "menu-choice--selected" : ""}`} key={item.id}>
+                    <button aria-pressed={selected} onClick={() => selectMenu(item)} type="button">
                       <strong>{item.name}</strong>
-                      <span>{item.category}</span>
+                      {components.length ? (
+                        <span className="menu-choice__components">{components.join(" · ")}</span>
+                      ) : null}
+                      <span className="menu-choice__add">{selected ? "✓ Selected" : "Choose"}</span>
                     </button>
-                    {quantity ? (
-                      <div className="quantity-row">
-                        <button onClick={() => changeQuantity(item.id, -1)} type="button">-</button>
-                        <strong>{quantity}</strong>
-                        <button onClick={() => changeQuantity(item.id, 1)} type="button">+</button>
-                      </div>
-                    ) : null}
                   </article>
                 );
               })}
             </div>
+            {condimentItems.length > 0 ? (
+              <div className="customer-condiments">
+                <span className="field-label">Condiments (optional)</span>
+                <div className="condiment-row">
+                  {condimentItems.map((item) => {
+                    const on = Boolean(condiments[item.id]);
+
+                    return (
+                      <button
+                        aria-pressed={on}
+                        className={`condiment-chip ${on ? "condiment-chip--on" : ""}`}
+                        key={item.id}
+                        onClick={() => toggleCondiment(item)}
+                        type="button"
+                      >
+                        {on ? "✓ " : "+ "}
+                        {item.name}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
           </div>
           <label>
             Order notes
@@ -235,7 +268,7 @@ export function OrdersBoard({
             <button className="button button--ghost" onClick={() => setCreateOpen(false)} type="button">
               Cancel
             </button>
-            <button disabled={saving || !selectedTableId || itemCount === 0} type="submit">
+            <button disabled={saving || !selectedTableId || !hasSelection} type="submit">
               {saving ? "Creating…" : "Create order"}
             </button>
           </div>

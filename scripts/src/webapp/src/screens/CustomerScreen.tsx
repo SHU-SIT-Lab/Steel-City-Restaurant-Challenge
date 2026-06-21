@@ -12,11 +12,24 @@ interface CustomerScreenProps {
 
 export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
   const { snapshot, loading, mode } = ops;
-  const menu = snapshot.menu.filter((item) => item.available !== false);
   const availableTables = snapshot.tables.filter((table) => table.status !== "unavailable");
 
-  const { selectedItems, notes, setNotes, toggleItem, changeQuantity, items, itemCount, reset } =
-    useOrderDraft(menu);
+  const {
+    setMenus,
+    condimentItems,
+    selectedMenuId,
+    selectMenu,
+    selectedMenu,
+    condiments,
+    toggleCondiment,
+    selectedCondiments,
+    notes,
+    setNotes,
+    items,
+    composedNotes,
+    hasSelection,
+    reset,
+  } = useOrderDraft(snapshot.menu);
   const [selectedTableId, setSelectedTableId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
@@ -25,7 +38,7 @@ export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
   const selectedTable = availableTables.find((table) => table.id === selectedTableId);
 
   async function handlePlaceOrder() {
-    if (!selectedTableId || itemCount === 0 || submitting) {
+    if (!selectedTableId || !hasSelection || submitting) {
       return;
     }
 
@@ -33,7 +46,7 @@ export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
     setSubmitError(null);
 
     try {
-      await createOrder({ table_id: selectedTableId, notes, items });
+      await createOrder({ table_id: selectedTableId, notes: composedNotes, items });
       setConfirmedTable(selectedTable ? tableLabel(selectedTable) : selectedTableId);
       reset();
       ops.actions.refresh();
@@ -107,30 +120,60 @@ export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
           </div>
 
           <div className="customer-menu-wrap">
-            <span className="field-label">2. Add items</span>
+            <span className="field-label">2. Choose one set menu</span>
             <div className="customer-menu">
-              <div className="menu-grid">
-                {menu.map((item) => {
-                  const quantity = selectedItems[item.id] ?? 0;
+              {setMenus.length === 0 ? (
+                <p className="empty-state">The menu is unavailable right now.</p>
+              ) : (
+                <div className="menu-grid menu-grid--set">
+                  {setMenus.map((item) => {
+                    const selected = selectedMenuId === item.id;
+                    const components = (item.components ?? []).map((component) => component.name);
 
-                  return (
-                    <article className={`menu-choice ${quantity ? "menu-choice--selected" : ""}`} key={item.id}>
-                      <button onClick={() => toggleItem(item)} type="button">
-                        <strong>{item.name}</strong>
-                        <span className="menu-choice__cat">{item.category}</span>
-                        <span className="menu-choice__add">{quantity ? `In order · ${quantity}` : "+ Add"}</span>
-                      </button>
-                      {quantity ? (
-                        <div className="quantity-row">
-                          <button onClick={() => changeQuantity(item.id, -1)} type="button">-</button>
-                          <strong>{quantity}</strong>
-                          <button onClick={() => changeQuantity(item.id, 1)} type="button">+</button>
-                        </div>
-                      ) : null}
-                    </article>
-                  );
-                })}
-              </div>
+                    return (
+                      <article
+                        className={`menu-choice ${selected ? "menu-choice--selected" : ""}`}
+                        key={item.id}
+                      >
+                        <button aria-pressed={selected} onClick={() => selectMenu(item)} type="button">
+                          <strong>{item.name}</strong>
+                          {components.length ? (
+                            <span className="menu-choice__components">{components.join(" · ")}</span>
+                          ) : null}
+                          {item.description ? (
+                            <span className="menu-choice__desc">{item.description}</span>
+                          ) : null}
+                          <span className="menu-choice__add">{selected ? "✓ Selected" : "Choose"}</span>
+                        </button>
+                      </article>
+                    );
+                  })}
+                </div>
+              )}
+
+              {condimentItems.length > 0 ? (
+                <div className="customer-condiments">
+                  <span className="field-label">Add condiments (optional)</span>
+                  <div className="condiment-row">
+                    {condimentItems.map((item) => {
+                      const on = Boolean(condiments[item.id]);
+
+                      return (
+                        <button
+                          aria-pressed={on}
+                          className={`condiment-chip ${on ? "condiment-chip--on" : ""}`}
+                          key={item.id}
+                          onClick={() => toggleCondiment(item)}
+                          type="button"
+                        >
+                          {on ? "✓ " : "+ "}
+                          {item.name}
+                        </button>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : null}
             </div>
           </div>
         </section>
@@ -147,20 +190,28 @@ export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
             <>
               <div className="panel__header">
                 <h2>Your order</h2>
-                <span className="tag">
-                  {itemCount} item{itemCount === 1 ? "" : "s"}
-                </span>
+                <span className="tag">{hasSelection ? "1 set menu" : "No menu"}</span>
               </div>
               <div className="customer-cart__lines">
-                {items.length === 0 ? (
-                  <p className="empty-state">Add items from the menu to start your order.</p>
+                {!selectedMenu ? (
+                  <p className="empty-state">Choose a set menu to start your order.</p>
                 ) : (
-                  items.map((item) => (
-                    <div className="cart-line" key={item.item_id}>
-                      <span>{item.name}</span>
-                      <strong>x{item.quantity}</strong>
+                  <>
+                    <div className="cart-line">
+                      <span>{selectedMenu.name}</span>
+                      <strong>x1</strong>
                     </div>
-                  ))
+                    {(selectedMenu.components ?? []).length > 0 ? (
+                      <p className="cart-components">
+                        Includes: {(selectedMenu.components ?? []).map((c) => c.name).join(", ")}
+                      </p>
+                    ) : null}
+                    {selectedCondiments.length > 0 ? (
+                      <p className="cart-components">
+                        Condiments: {selectedCondiments.map((c) => c.name).join(", ")}
+                      </p>
+                    ) : null}
+                  </>
                 )}
               </div>
               <div className="customer-cart__footer">
@@ -175,7 +226,7 @@ export function CustomerScreen({ ops, onSwitchView }: CustomerScreenProps) {
                 {submitError ? <p className="top-bar__error">{submitError}</p> : null}
                 <button
                   className="customer-place"
-                  disabled={!selectedTableId || itemCount === 0 || submitting}
+                  disabled={!selectedTableId || !hasSelection || submitting}
                   onClick={handlePlaceOrder}
                   type="button"
                 >

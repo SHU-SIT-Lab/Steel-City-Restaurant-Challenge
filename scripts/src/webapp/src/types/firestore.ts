@@ -97,10 +97,15 @@ export interface MenuComponent {
   vision_label?: string;
 }
 
+// Live menu docs are either set menus (menu_one…menu_five) the customer orders,
+// or condiments (tomato_ketchup, yellow_mustard) that go in order notes — never
+// in order_items. Kept open to `string` so an unexpected category still renders.
+export type MenuCategory = "set_menu" | "condiment";
+
 export interface MenuItem {
   id: string;
   name: string;
-  category: string;
+  category: MenuCategory | string;
   available?: boolean;
   display_order?: number;
   menu_number?: number;
@@ -108,6 +113,8 @@ export interface MenuItem {
   components?: MenuComponent[];
   created_at?: FirestoreTimestamp;
   updated_at?: FirestoreTimestamp;
+  // Legacy per-item fields from the old menu schema; no longer written by the
+  // set-menu catalog. Optional/vestigial — safe to ignore for set menus.
   graspable?: boolean;
   yolo_class?: number | null;
 }
