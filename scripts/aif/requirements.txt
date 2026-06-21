@@ -1,0 +1,10 @@
+# AIF (active-inference) waiter — headless decision core.
+# Run on Linux / WSL: JAX's first XLA compile is far faster than on native Windows.
+#
+#   pip install -r scripts/aif/requirements.txt
+#   python scripts/aif/aif_coordinator.py     # headless EFE demo
+#
+# This is the same JAX pymdp stack as leader_follower_aif.
+inferactively-pymdp>=0.1.0
+jax[cpu]
+numpy
