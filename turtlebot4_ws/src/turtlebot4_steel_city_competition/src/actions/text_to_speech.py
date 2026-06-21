@@ -24,7 +24,8 @@ from helpers.send_audio import process_audio_for_transmission
 
 CONFIG = {
     "audio_output_topic": "/audio_output",
-    "publish_queue_size": 10,
+    "publish_queue_size": 100,
+    "subscriber_wait_timeout_sec": 5.0,
     "test_sentence": "Hello. I am ServerBot. This is a test of the text-to-speech system.",
 }
 
@@ -98,6 +99,20 @@ class TextToSpeech(Node):
 
     def generate_speech(self, text: str) -> bool:
         self.get_logger().info(f"Generating speech: {text!r}")
+
+        wait_timeout = CONFIG["subscriber_wait_timeout_sec"]
+        deadline = time.monotonic() + wait_timeout
+        while self.publisher.get_subscription_count() == 0 and time.monotonic() < deadline:
+            time.sleep(0.05)
+
+        if self.publisher.get_subscription_count() == 0:
+            self.get_logger().warning(
+                f"No subscribers connected to {CONFIG['audio_output_topic']} after {wait_timeout:.1f}s; publishing anyway"
+            )
+        else:
+            self.get_logger().info(
+                f"Subscriber connected on {CONFIG['audio_output_topic']}; publishing audio now"
+            )
 
         try:
             audio = tts.speak(text)

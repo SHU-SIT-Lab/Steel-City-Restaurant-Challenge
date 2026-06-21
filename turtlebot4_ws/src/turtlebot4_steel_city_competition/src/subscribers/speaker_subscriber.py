@@ -51,7 +51,7 @@ class SpeakerSubscriber(Node):
             AudioData,
             SPEAKER_CONFIG["topic"],
             self._audio_callback,
-            10,
+            100,
         )
 
         self.get_logger().info(f"Listening for audio on {SPEAKER_CONFIG['topic']}")

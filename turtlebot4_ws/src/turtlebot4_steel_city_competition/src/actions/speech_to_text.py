@@ -87,7 +87,6 @@ class SpeechToText(Node):
 
         if self.debug:
             self._record_debug_audio(data, source_rate)
-            return
 
         self._process_speech()
 
