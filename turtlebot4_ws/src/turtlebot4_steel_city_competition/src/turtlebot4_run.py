@@ -168,6 +168,13 @@ def build_nodes() -> List[Node]:
 
 
 def main(args=None) -> None:
+	import os
+	if os.environ.get("AIF_COORDINATOR"):
+		# Active-inference coordinator (EFE selection) instead of the reactive
+		# argmax arbiter. Same behaviors/navigation; see aif_run.py.
+		import aif_run
+		aif_run.main(args)
+		return
 	rclpy.init(args=args)
 	nodes = build_nodes()
 	executor = MultiThreadedExecutor()
