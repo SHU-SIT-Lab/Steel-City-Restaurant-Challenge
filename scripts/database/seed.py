@@ -20,9 +20,11 @@ def main() -> None:
     if args.reset:
         db.reset_all_tables()
     db.seed_tables()
+    db.seed_menu()
     db.seed_restaurant_state()
     print("Firestore seed complete.")
     print(f"Tables: {[table.table_id for table in db.list_tables()]}")
+    print(f"Menus: {[menu.id for menu in db.list_menus()]}")
     if args.reset:
         print("Tip: run `python reset_demo.py` to also set customers_waiting=1 for seating tests.")
 

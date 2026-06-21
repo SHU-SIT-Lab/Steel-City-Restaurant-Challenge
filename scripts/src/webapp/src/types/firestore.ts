@@ -85,6 +85,16 @@ export interface Table {
   order_delivered?: boolean;
   order_items?: LegacyOrderItem[];
   order_notes?: string;
+  order_placed_at?: FirestoreTimestamp | null;
+  order_ready_at?: FirestoreTimestamp | null;
+  order_delivered_at?: FirestoreTimestamp | null;
+}
+
+export interface MenuComponent {
+  item_id: string;
+  name: string;
+  quantity: number;
+  vision_label?: string;
 }
 
 export interface MenuItem {
@@ -93,6 +103,11 @@ export interface MenuItem {
   category: string;
   available?: boolean;
   display_order?: number;
+  menu_number?: number;
+  description?: string;
+  components?: MenuComponent[];
+  created_at?: FirestoreTimestamp;
+  updated_at?: FirestoreTimestamp;
   graspable?: boolean;
   yolo_class?: number | null;
 }

@@ -25,6 +25,7 @@ def main() -> None:
     args = parser.parse_args()
 
     db = RestaurantDatabase()
+    db.seed_menu()
     db.reset_all_tables()
     if args.no_entrance:
         db.reset_restaurant_state()

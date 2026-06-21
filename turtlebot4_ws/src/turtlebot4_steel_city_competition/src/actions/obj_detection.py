@@ -2,22 +2,34 @@
 
 from pathlib import Path
 import sys
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import cv2
 import rclpy
-from cv_bridge import CvBridge
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
-from sensor_msgs.msg import Image
 
 # Make sibling modules in src importable when this script is run directly.
 SRC_DIR = Path(__file__).resolve().parents[1]
+REPO_ROOT = Path(__file__).resolve().parents[5]
+VISION_DIR = REPO_ROOT / "scripts" / "vision"
+NAV_DIR = REPO_ROOT / "scripts" / "nav"
 if str(SRC_DIR) not in sys.path:
 	sys.path.insert(0, str(SRC_DIR))
+if str(VISION_DIR) not in sys.path:
+	sys.path.insert(0, str(VISION_DIR))
+if str(NAV_DIR) not in sys.path:
+	sys.path.insert(0, str(NAV_DIR))
 
+from camera_utils import CameraSubscriber  # noqa: E402
 from helpers.retrieve_camera import CAMERA_CONFIG
 from helpers.process_camera import process_frame
+
+try:
+	from order_verification import OrderVerificationResult, verify_order
+except ImportError:
+	verify_order = None  # type: ignore[assignment]
+	OrderVerificationResult = None  # type: ignore[assignment,misc]
 
 # Global params for this action.
 OBJ_DETECTION_CONFIG = {
@@ -29,17 +41,11 @@ OBJ_DETECTION_CONFIG = {
 class ObjectDetection(Node):
 	def __init__(self) -> None:
 		super().__init__("object_detection")
-		self.bridge = CvBridge()
 		self.debug = OBJ_DETECTION_CONFIG["debug"]
 		self.turtlebot_img: Optional[Any] = None
-
-		# Subscribe to TurtleBot camera topic.
-		self.subscription = self.create_subscription(
-			Image,
-			CAMERA_CONFIG["topic"],
-			self._camera_callback,
-			CAMERA_CONFIG["queue_size"],
-		)
+		self._camera = CameraSubscriber(self, self._camera_callback, CAMERA_CONFIG["topic"])
+		self._camera.set_enabled(True)
+		self.create_timer(3.0, lambda: self._camera.tick())
 
 		self.people_detected = None
 		self.table_detected = None
@@ -53,9 +59,7 @@ class ObjectDetection(Node):
 		self.table_empty = None  # bool for current view, or dict {table_id: bool}
 		self.current_table_id = None  # set by nav/behaviors when robot is at a table
 
-	def _camera_callback(self, msg: Image) -> None:
-		raw_frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-		
+	def _camera_callback(self, raw_frame) -> None:
 		# Store raw frame for display
 		self.turtlebot_img = raw_frame
 
@@ -109,7 +113,27 @@ class ObjectDetection(Node):
 		return self.free_table
 	
 	def get_objects_detected(self) -> Dict[str, int]:
-		return self.objects_detected
+		return self.objects_detected or {}
+
+	def verify_order_items(
+		self,
+		order_items: List[str],
+		menu_lookup: Optional[dict] = None,
+	) -> Optional[Any]:
+		"""Compare expected menu order entries with the latest camera detections."""
+		if verify_order is None:
+			print("[VISION] order verification unavailable (order_verification import failed).")
+			return None
+
+		detected = self.get_objects_detected()
+		result = verify_order(order_items, detected, menus=menu_lookup)
+		print(
+			"[VISION] order verify "
+			f"correct={result.is_correct} required={dict(result.required)} "
+			f"detected={dict(result.detected)} missing={dict(result.missing)} "
+			f"extra={dict(result.extra)}"
+		)
+		return result
 
 	def destroy_node(self) -> bool:
 		if self.debug:

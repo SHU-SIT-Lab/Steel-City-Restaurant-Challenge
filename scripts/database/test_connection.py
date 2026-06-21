@@ -14,7 +14,7 @@ def main() -> None:
     db.assign_table(table_id)
     print(f"Needs order: {db.find_table_needing_order()}")
 
-    db.save_order(table_id, items=["burger", "coke"], notes="no pickles")
+    db.save_order(table_id, items=["menu_two"], notes="no pickles")
     print(f"After save - needs order: {db.find_table_needing_order()}")
     print(f"Pending kitchen: {db.find_table_with_pending_order()}")
     print(f"Ready to collect: {db.find_table_with_ready_order()}")

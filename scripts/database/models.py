@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass, field
+from datetime import datetime
 from enum import Enum
 from typing import Any
 
@@ -29,6 +30,11 @@ class TableDocument:
     order_delivered: bool = False
     order_items: list[str] = field(default_factory=list)
     order_notes: str = ""
+    occupied_since: datetime | None = None
+    order_placed_at: datetime | None = None
+    order_ready_at: datetime | None = None
+    order_delivered_at: datetime | None = None
+    last_updated: datetime | None = None
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -43,6 +49,11 @@ class TableDocument:
             order_delivered=bool(data.get("order_delivered", False)),
             order_items=list(data.get("order_items", [])),
             order_notes=str(data.get("order_notes", "")),
+            occupied_since=data.get("occupied_since"),
+            order_placed_at=data.get("order_placed_at"),
+            order_ready_at=data.get("order_ready_at"),
+            order_delivered_at=data.get("order_delivered_at"),
+            last_updated=data.get("last_updated"),
         )
 
 

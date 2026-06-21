@@ -6,6 +6,14 @@ from typing import Optional
 
 from client import get_firestore_client
 from config import collection_name, number_of_tables
+from google.cloud.firestore import SERVER_TIMESTAMP
+from menu_catalog import (
+    ALL_MENU_ITEMS,
+    MENU_BY_ID,
+    MenuDocument,
+    normalize_menu_reference,
+    resolve_order_items_to_vision_counts,
+)
 from models import OrderStatus, RestaurantStateDocument, TableDocument, TableStatus
 
 _STATE_DOC_ID = "current"
@@ -18,8 +26,79 @@ class RestaurantDatabase:
         self._db = get_firestore_client()
         self._tables = collection_name("tables")
         self._state = collection_name("restaurant_state")
+        self._menu = collection_name("menu")
+        self._menu_cache: dict[str, MenuDocument] | None = None
 
     # --- seed / setup ---
+
+    def seed_menu(self) -> None:
+        """Create or refresh set-menu reference documents in Firestore."""
+        for menu in ALL_MENU_ITEMS:
+            ref = self._db.collection(self._menu).document(menu.id)
+            data = menu.to_dict()
+            data["updated_at"] = SERVER_TIMESTAMP
+            if not ref.get().exists:
+                data["created_at"] = SERVER_TIMESTAMP
+            ref.set(data, merge=True)
+        self._menu_cache = None
+
+    def list_menus(self, *, refresh: bool = False) -> list[MenuDocument]:
+        if not refresh and self._menu_cache is not None:
+            return list(self._menu_cache.values())
+
+        docs = self._db.collection(self._menu).stream()
+        menus = [
+            MenuDocument.from_dict(doc.to_dict())
+            for doc in docs
+            if doc.id and doc.to_dict().get("id")
+        ]
+        if not menus:
+            menus = list(ALL_MENU_ITEMS)
+
+        self._menu_cache = {menu.id: menu for menu in menus}
+        return menus
+
+    def get_menu(self, menu_id: str) -> MenuDocument | None:
+        normalized = normalize_menu_reference(menu_id)
+        if normalized is None:
+            return None
+
+        if self._menu_cache and normalized in self._menu_cache:
+            return self._menu_cache[normalized]
+
+        snap = self._db.collection(self._menu).document(normalized).get()
+        if snap.exists:
+            menu = MenuDocument.from_dict(snap.to_dict())
+            if self._menu_cache is None:
+                self._menu_cache = {}
+            self._menu_cache[normalized] = menu
+            return menu
+
+        return MENU_BY_ID.get(normalized)
+
+    def normalize_order_menus(self, items: list[str]) -> list[str]:
+        """Validate and canonicalize customer order entries to set-menu ids."""
+        normalized_items: list[str] = []
+        for raw_item in items:
+            menu_id = normalize_menu_reference(raw_item)
+            if menu_id is None:
+                raise ValueError(f"unknown menu item: {raw_item!r}")
+
+            menu = self.get_menu(menu_id) or MENU_BY_ID.get(menu_id)
+            if menu is None:
+                raise ValueError(f"unknown menu item: {raw_item!r}")
+            if menu.category != "set_menu":
+                raise ValueError(
+                    f"{menu.name} is a condiment; add it in order notes, not as a menu."
+                )
+            if menu_id not in normalized_items:
+                normalized_items.append(menu_id)
+        return normalized_items
+
+    def resolve_order_vision_counts(self, order_items: list[str]) -> dict[str, int]:
+        menus = {menu.id: menu for menu in self.list_menus()}
+        counts = resolve_order_items_to_vision_counts(order_items, menus=menus)
+        return dict(counts)
 
     def seed_tables(self, table_count: Optional[int] = None) -> None:
         """Create empty table documents if they do not exist."""
@@ -44,7 +123,17 @@ class RestaurantDatabase:
         batch = self._db.batch()
         for table_id in range(count):
             ref = self._db.collection(self._tables).document(str(table_id))
-            batch.set(ref, TableDocument(table_id=table_id).to_dict())
+            batch.set(
+                ref,
+                {
+                    **TableDocument(table_id=table_id).to_dict(),
+                    "occupied_since": None,
+                    "order_placed_at": None,
+                    "order_ready_at": None,
+                    "order_delivered_at": None,
+                    "last_updated": SERVER_TIMESTAMP,
+                },
+            )
         batch.commit()
 
     def reset_restaurant_state(
@@ -105,6 +194,11 @@ class RestaurantDatabase:
                 "order_delivered": False,
                 "order_items": [],
                 "order_notes": "",
+                "occupied_since": SERVER_TIMESTAMP,
+                "order_placed_at": None,
+                "order_ready_at": None,
+                "order_delivered_at": None,
+                "last_updated": SERVER_TIMESTAMP,
             },
             merge=True,
         )
@@ -115,23 +209,34 @@ class RestaurantDatabase:
         items: list[str],
         notes: str = "",
     ) -> None:
+        menu_ids = self.normalize_order_menus(items)
         ref = self._db.collection(self._tables).document(str(table_id))
         ref.set(
             {
                 "table_id": table_id,
                 "status": TableStatus.OCCUPIED.value,
                 "has_ordered": True,
-                "order_items": items,
+                "order_items": menu_ids,
                 "order_notes": notes,
                 "order_ready": False,
                 "order_delivered": False,
+                "order_placed_at": SERVER_TIMESTAMP,
+                "order_ready_at": None,
+                "order_delivered_at": None,
+                "last_updated": SERVER_TIMESTAMP,
             },
             merge=True,
         )
 
     def mark_order_ready(self, table_id: int) -> None:
         ref = self._db.collection(self._tables).document(str(table_id))
-        ref.update({"order_ready": True})
+        ref.update(
+            {
+                "order_ready": True,
+                "order_ready_at": SERVER_TIMESTAMP,
+                "last_updated": SERVER_TIMESTAMP,
+            }
+        )
 
     def mark_order_delivered(self, table_id: int) -> None:
         ref = self._db.collection(self._tables).document(str(table_id))
@@ -144,6 +249,11 @@ class RestaurantDatabase:
                 "order_delivered": True,
                 "order_items": [],
                 "order_notes": "",
+                "occupied_since": None,
+                "order_placed_at": None,
+                "order_ready_at": None,
+                "order_delivered_at": SERVER_TIMESTAMP,
+                "last_updated": SERVER_TIMESTAMP,
             },
             merge=True,
         )

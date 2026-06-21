@@ -19,7 +19,7 @@ def main() -> int:
 	db.assign_table(0)
 	assert db.find_table_needing_order() == 0
 
-	db.save_order(0, ["coffee"], "no dairy")
+	db.save_order(0, ["menu_one"], "no dairy")
 	assert db.find_table_with_ready_order() is None
 
 	db.mark_order_ready(0)

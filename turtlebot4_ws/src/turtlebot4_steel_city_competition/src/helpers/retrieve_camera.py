@@ -1,23 +1,32 @@
 #!/usr/bin/env python3
 
+import sys
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Optional, Tuple
 
 import cv2
 import rclpy
-from cv_bridge import CvBridge
 from rclpy.node import Node
-from sensor_msgs.msg import Image
+
+NAV_DIR = Path(__file__).resolve().parents[5] / "scripts" / "nav"
+if str(NAV_DIR) not in sys.path:
+	sys.path.insert(0, str(NAV_DIR))
+
+from camera_utils import DEFAULT_CAMERA_TOPIC, CameraSubscriber  # noqa: E402
 
 
 # Global settings: change these values when you want different behavior.
 CAMERA_CONFIG = {
-	"topic": "/oakd/rgb/preview/image_raw",
+	"topic": DEFAULT_CAMERA_TOPIC,
 	"queue_size": 10,
 	"upsample_scale": 2.0,
 	"downsample_scale": 0.5,
 	"target_size": (320, 240),
 }
+
+# Kept for callers that imported CAMERA_QOS before the CameraSubscriber refactor.
+CAMERA_QOS = 10
 
 
 @dataclass
@@ -55,19 +64,12 @@ def process_frame(frame: Any) -> CameraFrames:
 class RetrieveCamera(Node):
 	def __init__(self) -> None:
 		super().__init__("retrieve_camera")
-		self.bridge = CvBridge()
 		self.frames = CameraFrames()
+		self._camera = CameraSubscriber(self, self._store_frame, CAMERA_CONFIG["topic"])
+		self._camera.set_enabled(True)
+		self.create_timer(3.0, lambda: self._camera.tick())
 
-		# Subscribe to camera topic and store the latest processed frames.
-		self.subscription = self.create_subscription(
-			Image,
-			CAMERA_CONFIG["topic"],
-			self._camera_callback,
-			CAMERA_CONFIG["queue_size"],
-		)
-
-	def _camera_callback(self, msg: Image) -> None:
-		frame = self.bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
+	def _store_frame(self, frame: Any) -> None:
 		self.frames = process_frame(frame)
 
 	def upsample(self, frame) -> Any:

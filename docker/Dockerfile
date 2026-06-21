@@ -56,7 +56,10 @@ RUN pip3 install --break-system-packages --no-cache-dir \
     ultralytics \
     speechbrain \
     sounddevice \
-    torch
+    torchaudio \
+    ultralytics \
+    torch \
+    torchvision \
 
 RUN mkdir -p /etc/turtlebot4
 

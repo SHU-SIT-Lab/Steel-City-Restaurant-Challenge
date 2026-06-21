@@ -6,7 +6,7 @@ restaurant order using OpenAI tool calling.
 Example:
     taker = OrderTaker()
     taker.reset()
-    reply, order = taker.chat("I'd like a burger and a coke")
+    reply, order = taker.chat("I'd like Menu Two please")
     reply, order = taker.chat("yes that's right")
 
 When the customer confirms, the model calls the `record_order` tool and `chat`
@@ -18,30 +18,46 @@ from __future__ import annotations
 
 import json
 import os
+import sys
+from pathlib import Path
 from typing import Any
 
 from openai import OpenAI
+
+REPO_ROOT = Path(__file__).resolve().parents[5]
+DATABASE_DIR = REPO_ROOT / "scripts" / "database"
+if str(DATABASE_DIR) not in sys.path:
+    sys.path.insert(0, str(DATABASE_DIR))
+
+try:
+    from menu_catalog import menu_prompt_text
+except ImportError:
+    menu_prompt_text = lambda: (  # noqa: E731
+        "Customers choose one set menu: Menu One through Menu Five."
+    )
 
 MODEL = "gpt-4o-mini"
 MAX_TOKENS = 300
 MAX_TOOL_ROUNDS = 5
 
-SYSTEM_PROMPT = """\
+SYSTEM_PROMPT = f"""\
 You are ServerBot, a friendly and efficient robot waiter in a restaurant.
 
+{menu_prompt_text()}
+
 Your task:
-1. Take the customer's food and drink order.
-2. Ask short clarification questions if needed.
-3. Repeat the full order back to the customer.
-4. Ask the customer to confirm.
-5. Only after the customer clearly confirms, call the record_order tool.
-6. Thank the customer warmly after the order is recorded.
+1. Help the customer choose one set menu (Menu One through Menu Five).
+2. Repeat the chosen menu and what it includes.
+3. Ask the customer to confirm.
+4. Only after the customer clearly confirms, call the record_order tool.
+5. Thank the customer warmly after the order is recorded.
 
 Rules:
 - Keep replies short because they will be spoken aloud.
-- Do not call record_order until the customer explicitly confirms the repeated order.
-- Do not invent unavailable details.
-- Put dietary needs, allergies, or special requests in notes.
+- Record menu ids in items, e.g. ["menu_two"] or ["Menu Two"].
+- Customers choose one menu unless they clearly want a second set menu.
+- Optional condiments go in notes, not in items.
+- Do not call record_order until the customer explicitly confirms.
 - If there are no notes, use an empty string.
 """
 
@@ -50,8 +66,8 @@ RECORD_ORDER_TOOL = {
     "function": {
         "name": "record_order",
         "description": (
-            "Record the customer's confirmed food and drink order. "
-            "Call this only after the customer has explicitly confirmed the repeated order."
+            "Record the customer's confirmed set-menu order. "
+            "Call this only after the customer has explicitly confirmed."
         ),
         "parameters": {
             "type": "object",
@@ -59,11 +75,16 @@ RECORD_ORDER_TOOL = {
                 "items": {
                     "type": "array",
                     "items": {"type": "string"},
-                    "description": "The confirmed ordered items, e.g. ['burger', 'coke'].",
+                    "description": (
+                        "Confirmed menu ids or names, e.g. ['menu_two'] or ['Menu Two']."
+                    ),
                 },
                 "notes": {
                     "type": "string",
-                    "description": "Dietary needs, allergies, or special requests. Empty string if none.",
+                    "description": (
+                        "Condiments, dietary needs, allergies, or special requests. "
+                        "Empty string if none."
+                    ),
                 },
             },
             "required": ["items"],

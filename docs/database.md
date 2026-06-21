@@ -7,6 +7,7 @@ Firestore-backed shared state for table status, orders, and entrance queue data.
 | Collection | Document ID | Purpose |
 |------------|-------------|---------|
 | `tables` | `0`, `1`, ... | Table status, order items, delivery flags |
+| `menu` | `menu_one`, `menu_two`, ... | Set-menu reference (name + component items for vision) |
 | `restaurant_state` | `current` | Customers waiting at entrance (collaborator robots) |
 
 ## Order lifecycle
@@ -14,7 +15,7 @@ Firestore-backed shared state for table status, orders, and entrance queue data.
 | Step | Behavior | Repository call | Firestore change |
 |------|----------|-----------------|------------------|
 | Seat customer | `introduce_table` | `assign_table()` | `status=occupied`, `has_ordered=false` |
-| Take order | `take_order` | `save_order()` | `has_ordered=true`, `order_ready=false` |
+| Take order | `take_order` | `save_order()` | `has_ordered=true`, `order_items=["menu_one"]`, `order_ready=false` |
 | Mark ready | `mark_order_ready` | `mark_order_ready()` | `order_ready=true` |
 | Deliver | `collect_order` | `mark_order_delivered()` | table reset to empty |
 
@@ -87,6 +88,42 @@ from `database_bridge.py` instead of writing these keys manually.
 4. After a leg completes, advance to `next_target_location` if present.
 5. Set `order_delivered=true` in `shared_state` when the customer has the order
    so `collect_order` can reset the table in Firestore.
+
+## Menu collection (`menu`)
+
+Set menus are stored as reference documents. Customers order a **menu id**, not
+individual food items. Vision checks expand each menu into required components.
+
+| Document ID | Display name | Components (vision labels) |
+|-------------|--------------|----------------------------|
+| `menu_one` | Menu One | sandwich, slice_of_pie |
+| `menu_two` | Menu Two | hot_dog, crisps, chocolate_chip_cookie |
+| `menu_three` | Menu Three | waffle, bacon |
+| `menu_four` | Menu Four | crab, lemon, slice_of_pie |
+| `menu_five` | Menu Five | slice_of_pizza, prawn, chocolate_chip_cookie |
+
+Table `order_items` stores menu ids, for example `["menu_two"]`. Condiments
+(tomato ketchup, yellow mustard) are optional and go in `order_notes`, not
+`order_items`.
+
+### Order timestamps (table documents)
+
+| Field | Set when |
+|-------|----------|
+| `occupied_since` | Customer seated (`assign_table`) |
+| `order_placed_at` | Order saved (`save_order`) |
+| `order_ready_at` | Kitchen marks ready (`mark_order_ready`) |
+| `order_delivered_at` | Robot delivers (`mark_order_delivered`) |
+| `last_updated` | Any table write |
+
+Menu documents carry `created_at` (first seed) and `updated_at` (every seed).
+
+Seed or refresh menu docs:
+
+```bash
+cd scripts/database
+python seed.py
+```
 
 ## Setup
 
@@ -171,7 +208,7 @@ db = RestaurantDatabase()
 table_id = db.find_table_needing_order()
 if table_id is not None:
     set_navigation_target(ctx, table_id_to_location(table_id), table_id=table_id)
-    db.save_order(table_id, items=["coffee", "sandwich"], notes="no dairy")
+    db.save_order(table_id, items=["menu_one"], notes="extra ketchup in notes")
 
 pending = db.find_table_with_pending_order()
 if pending is not None:

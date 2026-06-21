@@ -45,6 +45,16 @@ export function normalizeOrderItems(
 
     const menuItem = menu.find((candidate) => candidate.id === item);
 
+    if (menuItem?.components?.length) {
+      return {
+        item_id: item,
+        name: menuItem.name,
+        quantity: 1,
+        notes: menuItem.components.map((component) => component.name).join(", "),
+        graspable: menuItem.graspable,
+      };
+    }
+
     return {
       item_id: item,
       name: menuItem?.name ?? item,

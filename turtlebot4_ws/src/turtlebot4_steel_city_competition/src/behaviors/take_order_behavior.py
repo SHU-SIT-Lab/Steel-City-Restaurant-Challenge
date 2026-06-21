@@ -81,7 +81,11 @@ class TakeOrderBehavior(DeliberativeBehavior):
 			return None
 
 		taker.reset()
-		say(self, "Hello! I'm ServerBot. What would you like to order?", tag="TAKE_ORDER")
+		say(
+			self,
+			"Hello! I'm ServerBot. We have Menu One through Menu Five. Which menu would you like?",
+			tag="TAKE_ORDER",
+		)
 
 		no_reply = 0
 		for _ in range(self.max_dialogue_turns):
@@ -131,12 +135,22 @@ class TakeOrderBehavior(DeliberativeBehavior):
 				print(f"[TAKE_ORDER] DB: empty order for table {table_id}; not saving.")
 				return False
 
-			self.db.save_order(table_id, items=clean_items, notes=clean_notes)
+			menu_ids = self.db.normalize_order_menus(clean_items)
+			self.db.save_order(table_id, items=menu_ids, notes=clean_notes)
 			print(
 				f"[TAKE_ORDER] DB saved for table {table_id}: "
-				f"items={clean_items} notes={clean_notes!r}"
+				f"menus={menu_ids} notes={clean_notes!r}"
 			)
 			return True
+		except ValueError as exc:
+			print(f"[TAKE_ORDER] DB: invalid menu order for table {table_id}: {exc}")
+			say(
+				self,
+				"Sorry, I can only take orders for Menu One through Menu Five. "
+				"Which menu would you like?",
+				tag="TAKE_ORDER",
+			)
+			return False
 		except Exception as exc:
 			print(f"[TAKE_ORDER] DB save failed for table {table_id} ({exc}).")
 			return False

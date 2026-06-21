@@ -6,26 +6,24 @@ from __future__ import annotations
 import argparse
 import math
 import threading
+import time
 from dataclasses import dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, Optional, Tuple
+from typing import Optional, Tuple
 
 import cv2
 import rclpy
 import tkinter as tk
-from cv_bridge import CvBridge
 from geometry_msgs.msg import PoseWithCovarianceStamped, TwistStamped
 from PIL import Image, ImageTk
 from rclpy.node import Node
 from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
-from sensor_msgs.msg import Image as RosImage
 from tkinter import filedialog, messagebox, simpledialog, ttk
 from turtlebot4_steel_city_competition.srv import NavigateToWaypoint
 
+from camera_utils import DEFAULT_CAMERA_TOPIC, CameraSubscriber
 from waypoint_store import default_waypoints_path, load_waypoints, save_waypoints
-
-CAMERA_TOPIC = "/oakd/rgb/preview/image_raw"
 AMCL_POSE_TOPIC = "/amcl_pose"
 SLAM_POSE_TOPIC = "/pose"
 AMCL_POSE_QOS = QoSProfile(
@@ -53,15 +51,14 @@ class HelperRosBridge(Node):
 
     def __init__(self) -> None:
         super().__init__("waypoint_recorder_bridge")
-        self._bridge = CvBridge()
-        self._camera_enabled = False
+        self._frame_lock = threading.Lock()
         self._latest_frame = None
         self._latest_pose: Optional[RobotPose] = None
         self._pose_received = False
         self._pose_source: Optional[str] = None
         self._nav_client = self.create_client(NavigateToWaypoint, NAV_SERVICE)
         self._cmd_vel_pub = self.create_publisher(TwistStamped, CMD_VEL_TOPIC, 10)
-        self._camera_sub = None
+        self._camera = CameraSubscriber(self, self._store_camera_frame)
         self.create_subscription(
             PoseWithCovarianceStamped,
             AMCL_POSE_TOPIC,
@@ -74,6 +71,10 @@ class HelperRosBridge(Node):
             self._slam_pose_callback,
             10,
         )
+
+    def _store_camera_frame(self, frame) -> None:
+        with self._frame_lock:
+            self._latest_frame = frame
 
     def _update_pose(self, msg: PoseWithCovarianceStamped, source: str) -> None:
         orientation = msg.pose.pose.orientation
@@ -96,28 +97,21 @@ class HelperRosBridge(Node):
     def _slam_pose_callback(self, msg: PoseWithCovarianceStamped) -> None:
         self._update_pose(msg, "SLAM (/pose)")
 
-    def _camera_callback(self, msg: RosImage) -> None:
-        if not self._camera_enabled:
-            return
-        try:
-            self._latest_frame = self._bridge.imgmsg_to_cv2(msg, desired_encoding="bgr8")
-        except Exception as exc:
-            self.get_logger().warn(f"Camera conversion failed: {exc}")
-
     def set_camera_enabled(self, enabled: bool) -> None:
-        self._camera_enabled = enabled
-        if enabled and self._camera_sub is None:
-            self._camera_sub = self.create_subscription(
-                RosImage,
-                CAMERA_TOPIC,
-                self._camera_callback,
-                10,
-            )
+        self._camera.set_enabled(enabled)
         if not enabled:
-            self._latest_frame = None
+            with self._frame_lock:
+                self._latest_frame = None
+
+    def get_camera_topic(self) -> Optional[str]:
+        return self._camera.active_topic
+
+    def tick_camera(self) -> None:
+        self._camera.tick()
 
     def get_latest_frame(self):
-        return self._latest_frame
+        with self._frame_lock:
+            return None if self._latest_frame is None else self._latest_frame.copy()
 
     def get_current_pose(self) -> Optional[RobotPose]:
         return self._latest_pose
@@ -141,7 +135,11 @@ class HelperRosBridge(Node):
         request = NavigateToWaypoint.Request()
         request.destination = destination
         future = self._nav_client.call_async(request)
-        rclpy.spin_until_future_complete(self, future)
+        deadline = time.monotonic() + 300.0
+        while rclpy.ok() and time.monotonic() < deadline:
+            rclpy.spin_once(self, timeout_sec=0.05)
+            if future.done():
+                break
         if not future.done() or future.result() is None:
             return False, "Navigation service call failed."
 
@@ -160,22 +158,6 @@ class HelperRosBridge(Node):
         self.publish_cmd_vel(0.0, 0.0)
 
 
-def start_ros_spin(
-    node: HelperRosBridge,
-    on_error: Optional[Callable[[Exception], None]] = None,
-) -> threading.Thread:
-    def _spin() -> None:
-        try:
-            rclpy.spin(node)
-        except Exception as exc:
-            if on_error:
-                on_error(exc)
-
-    thread = threading.Thread(target=_spin, daemon=True)
-    thread.start()
-    return thread
-
-
 class WaypointRecorderApp:
     def __init__(self, root: tk.Tk, waypoints_path: Path) -> None:
         self.root = root
@@ -190,7 +172,6 @@ class WaypointRecorderApp:
 
         rclpy.init()
         self.ros = HelperRosBridge()
-        start_ros_spin(self.ros)
 
         self._build_ui()
         self._refresh_waypoint_list()
@@ -494,7 +475,13 @@ class WaypointRecorderApp:
         if self._pressed_keys:
             teleop_text = "publishing TwistStamped"
 
-        camera_text = "on" if self.camera_enabled.get() and self.ros.get_latest_frame() is not None else "waiting"
+        camera_topic = self.ros.get_camera_topic() or DEFAULT_CAMERA_TOPIC
+        if not self.camera_enabled.get():
+            camera_text = "off"
+        elif self.ros.get_latest_frame() is not None:
+            camera_text = f"live ({camera_topic})"
+        else:
+            camera_text = f"waiting ({camera_topic})"
 
         lines = [
             f"Pose: {'OK' if pose_ok else 'missing'} [{pose_source}] ({pose_text})",
@@ -506,6 +493,8 @@ class WaypointRecorderApp:
             lines.append("Hint: start localization on saved map (competition) or SLAM (mapping)")
         if not nav_ok:
             lines.append("Hint: launch navigation_server after Nav2 is up")
+        if self.camera_enabled.get() and self.ros.get_latest_frame() is None:
+            lines.append("Hint: undock robot; run ./scripts/nav/run_record_waypoints.sh")
         self.status_var.set("\n".join(lines))
 
     def _update_camera(self) -> None:
@@ -521,10 +510,12 @@ class WaypointRecorderApp:
         self.camera_label.configure(image=self._camera_photo, text="")
 
     def _update_loop(self) -> None:
+        rclpy.spin_once(self.ros, timeout_sec=0)
+        self.ros.tick_camera()
         self._apply_teleop()
         self._update_status()
         self._update_camera()
-        self.root.after(100, self._update_loop)
+        self.root.after(50, self._update_loop)
 
     def shutdown(self) -> None:
         self.ros.stop()

@@ -32,7 +32,7 @@ def trigger_take_order(db: RestaurantDatabase, table_id: int = 0) -> None:
 
 def trigger_collect_order(db: RestaurantDatabase, table_id: int = 0) -> None:
 	db.assign_table(table_id)
-	db.save_order(table_id, ["demo item"], "")
+	db.save_order(table_id, ["menu_one"], "")
 	db.mark_order_ready(table_id)
 	print(f"Trigger collect_order: table {table_id} order_ready=true")
 
