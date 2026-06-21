@@ -120,7 +120,12 @@ exactly as rank→γ does in `leader_follower_aif`. This gives a graded, auditab
 "how legal vs how efficient" knob — the law-as-code contribution: statutes/service
 rules parsed into structured (C, E, B-mask, γ) tuples rather than `if` branches.
 
-See [[law-as-code-aif]] for the norm-compilation front end.
+See [[law-as-code-aif]] for the norm-compilation front end. A runnable
+demonstration is in `scripts/aif/law_as_code.py`: a precedence/fairness rule
+compiled into **C** (soft) and the transition **B-mask** (hard), reshaped by
+restaurant context (party size, wait time, busyness) — e.g. the same conflict
+resolves toward fairness when quiet and toward throughput when slammed — with
+`fairness_lambda` as the strict-vs-flexible precision knob.
 
 ## Mapping to the existing ROS interface
 
