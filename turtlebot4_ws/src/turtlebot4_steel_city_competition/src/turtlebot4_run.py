@@ -17,9 +17,11 @@ if str(SRC_DIR) not in sys.path:
 
 from behaviors.behaviors import (
 	DeliberativeBehavior,
+	advance_behavior_sequence,
 	_get_shared_object_detection,
 	_get_shared_speech_to_text,
 	_get_shared_text_to_speech,
+	reset_behavior_sequence,
 )
 from behaviors.check_customer_behavior import CheckCustomerBehavior
 from behaviors.check_empty_table_behavior import CheckEmptyTableBehavior
@@ -35,6 +37,7 @@ from behaviors.update_customer_number_behavior import CheckCustomerNumberBehavio
 class ReactiveCoordinator(Node):
 	def __init__(self) -> None:
 		super().__init__("reactive_coordinator")
+		reset_behavior_sequence()
 		self._behaviors: List[DeliberativeBehavior] = []
 		self._behavior_index: Dict[str, DeliberativeBehavior] = {}
 		self._behavior_queue: Deque[str] = deque()
@@ -70,8 +73,8 @@ class ReactiveCoordinator(Node):
 		self.register_behavior(MarkOrderReadyBehavior())
 		self.register_behavior(CollectOrderBehavior())
 		self.register_behavior(CheckCustomerNumberBehavior())
-		self.first_behavior = "check_customer"
-		self.set_priority_behavior("check_customer")
+		self.first_behavior = "check_empty_table"
+		self.set_priority_behavior("check_empty_table")
 		self.get_logger().info("Registered competition behaviors.")
 
 	def register_behavior(self, behavior: DeliberativeBehavior) -> None:
@@ -132,6 +135,7 @@ class ReactiveCoordinator(Node):
 		self.ctx["selected_behavior"] = behavior_name
 		try:
 			behavior.run(self.ctx)
+			advance_behavior_sequence(behavior.name)
 			drive_navigation(self.ctx, self.ctx.get("navigation"))
 		except Exception as exc:
 			self.get_logger().error(f"Behavior '{behavior.name}' failed: {exc}")

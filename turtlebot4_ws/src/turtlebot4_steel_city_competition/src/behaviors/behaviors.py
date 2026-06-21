@@ -10,6 +10,40 @@ _SHARED_OBJECT_DETECTION = None
 _SHARED_SPEECH_TO_TEXT = None
 _SHARED_TEXT_TO_SPEECH = None
 
+SEQUENTIAL_BEHAVIOR_ORDER = (
+    "check_empty_table",
+    "check_customer",
+    "check_customer_number",
+    "introduce_table",
+    "take_order",
+    "mark_order_ready",
+    "collect_order",
+)
+
+_SEQUENCE_INDEX = 0
+
+
+def reset_behavior_sequence() -> None:
+    global _SEQUENCE_INDEX
+    _SEQUENCE_INDEX = 0
+
+
+def current_behavior_sequence() -> Optional[str]:
+    if 0 <= _SEQUENCE_INDEX < len(SEQUENTIAL_BEHAVIOR_ORDER):
+        return SEQUENTIAL_BEHAVIOR_ORDER[_SEQUENCE_INDEX]
+    return None
+
+
+def advance_behavior_sequence(behavior_name: str) -> bool:
+    global _SEQUENCE_INDEX
+
+    current = current_behavior_sequence()
+    if current != behavior_name:
+        return False
+
+    _SEQUENCE_INDEX += 1
+    return True
+
 
 def _get_shared_object_detection():
     global _SHARED_OBJECT_DETECTION
@@ -120,6 +154,12 @@ class DeliberativeBehavior(ABC):
 
     def add_action(self, name: str, payload: Optional[Dict[str, Any]] = None) -> None:
         self.planned_actions.append({"name": name, "payload": payload or {}})
+
+    def sequence_gate(self, score: float) -> float:
+        current = current_behavior_sequence()
+        if current != self.name:
+            return 0.0
+        return score
 
     def _reset_state(self) -> None:
         self.planned_actions.clear()

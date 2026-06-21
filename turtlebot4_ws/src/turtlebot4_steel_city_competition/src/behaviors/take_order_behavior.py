@@ -69,11 +69,11 @@ class TakeOrderBehavior(DeliberativeBehavior):
 		elapsed_time = time.monotonic() - self.last_run_time
 		if elapsed_time < self.wait_time:
 			self.priority = 0.0
-			return self.priority
+			return self.sequence_gate(self.priority)
 
 		table_id = self._get_table_awaiting_order()
 		self.priority = float(self.order) if table_id is not None else 0.0
-		return self.priority
+		return self.sequence_gate(self.priority)
 
 	def _take_order(self) -> Optional[dict]:
 		taker = self._get_order_taker()

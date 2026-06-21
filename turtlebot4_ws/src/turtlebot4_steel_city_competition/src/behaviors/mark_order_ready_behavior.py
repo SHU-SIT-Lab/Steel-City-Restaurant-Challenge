@@ -39,7 +39,7 @@ class MarkOrderReadyBehavior(DeliberativeBehavior):
 		else:
 			has_pending = self._get_table_with_pending_order(None) is not None
 			self.priority = 1.0 * self.order if has_pending else 0.0
-		return self.priority
+		return self.sequence_gate(self.priority)
 
 	def _get_table_with_pending_order(self, ctx: Any) -> Optional[int]:
 		"""Return a table with a placed order that is not ready yet."""

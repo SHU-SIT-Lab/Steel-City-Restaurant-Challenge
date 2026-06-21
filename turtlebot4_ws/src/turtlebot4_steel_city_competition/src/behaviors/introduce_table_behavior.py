@@ -69,4 +69,4 @@ class IntroduceTableBehavior(DeliberativeBehavior):
 		else:
 			self.priority = 1.0 * self.order * self.guide_customer
 
-		return self.priority
+		return self.sequence_gate(self.priority)

@@ -28,6 +28,7 @@ install(PROGRAMS
   src/behaviors/mark_order_ready_behavior.py
   src/behaviors/take_order_behavior.py
   src/behaviors/update_customer_number_behavior.py
+  src/navigation/navigation_server.py
   src/publishers/mic_publisher.py
   src/subscribers/speaker_subscriber.py
   DESTINATION lib/${PROJECT_NAME})

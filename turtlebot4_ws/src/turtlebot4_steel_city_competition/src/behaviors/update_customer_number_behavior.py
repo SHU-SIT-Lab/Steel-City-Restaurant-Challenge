@@ -60,4 +60,4 @@ class CheckCustomerNumberBehavior(DeliberativeBehavior):
 		else:
 			self.priority = 1.0 * self.order
 
-		return self.priority
+		return self.sequence_gate(self.priority)

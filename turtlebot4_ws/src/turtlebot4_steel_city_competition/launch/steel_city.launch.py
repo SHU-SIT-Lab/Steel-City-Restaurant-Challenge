@@ -31,6 +31,12 @@ def generate_launch_description():
         ),
         Node(
             package='turtlebot4_steel_city_competition',
+            executable='speaker_subscriber.py',
+            name='speaker_subscriber',
+            output='screen',
+        ),
+        Node(
+            package='turtlebot4_steel_city_competition',
             executable='turtlebot4_run.py',
             name='steel_city_node',
             output='screen',
