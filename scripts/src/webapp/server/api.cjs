@@ -231,6 +231,124 @@ function fail(message, statusCode = 400) {
   throw error;
 }
 
+// --- Set-menu normalization (mirrors scripts/database/menu_catalog.py) ---
+// The robot reads a deduped list of canonical set-menu ids from the table doc
+// (e.g. ["menu_two"]). Customers order a menu id, not free items; condiments
+// belong in the order notes, never in order_items.
+const MENU_WORD_NUMBERS = { one: 1, two: 2, three: 3, four: 4, five: 5 };
+const MENU_NUMBER_WORDS = { 1: "one", 2: "two", 3: "three", 4: "four", 5: "five" };
+const FALLBACK_SET_MENU_IDS = ["menu_one", "menu_two", "menu_three", "menu_four", "menu_five"];
+const FALLBACK_CONDIMENT_IDS = ["tomato_ketchup", "yellow_mustard"];
+
+// Build the id index from the live menu cache, falling back to the catalog
+// constants if the snapshot listeners haven't warmed the cache yet.
+function buildMenuIndex() {
+  const setMenuIds = new Set();
+  const condimentIds = new Set();
+  const byNumber = new Map();
+
+  for (const doc of snapshotCache.menu || []) {
+    if (!doc || typeof doc.id !== "string" || !doc.id) {
+      continue;
+    }
+
+    if (doc.category === "condiment") {
+      condimentIds.add(doc.id);
+      continue;
+    }
+
+    // Only set menus are orderable as items; other categories (e.g. a "drink")
+    // are not, and fall through to the unknown-item rejection.
+    if (doc.category === "set_menu") {
+      setMenuIds.add(doc.id);
+
+      if (Number.isInteger(doc.menu_number)) {
+        byNumber.set(doc.menu_number, doc.id);
+      }
+    }
+  }
+
+  if (setMenuIds.size === 0) {
+    FALLBACK_SET_MENU_IDS.forEach((id) => setMenuIds.add(id));
+    FALLBACK_CONDIMENT_IDS.forEach((id) => condimentIds.add(id));
+    Object.entries(MENU_NUMBER_WORDS).forEach(([number, word]) => byNumber.set(Number(number), `menu_${word}`));
+  }
+
+  return { setMenuIds, condimentIds, byNumber };
+}
+
+function normalizeMenuReference(value, index) {
+  const raw = String(value == null ? "" : value).trim().toLowerCase();
+
+  if (!raw) {
+    return null;
+  }
+
+  if (index.setMenuIds.has(raw) || index.condimentIds.has(raw)) {
+    return raw;
+  }
+
+  const compact = raw.replace(/[\s-]+/g, "_");
+
+  if (index.setMenuIds.has(compact) || index.condimentIds.has(compact)) {
+    return compact;
+  }
+
+  const fromNumberWord = (suffix) => {
+    if (/^\d+$/.test(suffix)) {
+      const id = index.byNumber.get(Number(suffix));
+      if (id) return id;
+    }
+    if (Object.prototype.hasOwnProperty.call(MENU_WORD_NUMBERS, suffix)) {
+      const id = index.byNumber.get(MENU_WORD_NUMBERS[suffix]);
+      if (id) return id;
+    }
+    return null;
+  };
+
+  if (compact.startsWith("menu_")) {
+    const id = fromNumberWord(compact.slice("menu_".length));
+    if (id) return id;
+  }
+
+  if (raw.startsWith("menu")) {
+    const id = fromNumberWord(raw.slice("menu".length).replace(/^[\s_-]+/, ""));
+    if (id) return id;
+  }
+
+  return null;
+}
+
+// Validate + canonicalize incoming order items into a deduped list of set-menu
+// ids. Mirrors RestaurantDatabase.normalize_order_menus on the robot side.
+function normalizeMenuIds(items) {
+  const index = buildMenuIndex();
+  const menuIds = [];
+
+  for (const item of items) {
+    const reference = item && typeof item === "object" ? item.item_id ?? item.name : item;
+    const menuId = normalizeMenuReference(reference, index);
+
+    if (!menuId) {
+      fail(`unknown menu item: ${typeof reference === "string" ? reference : JSON.stringify(item)}`);
+    }
+
+    if (index.condimentIds.has(menuId)) {
+      fail("condiments go in the order notes, not as a menu item");
+    }
+
+    if (!index.setMenuIds.has(menuId)) {
+      fail(`unknown menu item: ${menuId}`);
+    }
+
+    if (!menuIds.includes(menuId)) {
+      menuIds.push(menuId);
+    }
+  }
+
+  return menuIds;
+}
+
 async function handleSnapshot(_req, res) {
   try {
     startSnapshotListeners();
@@ -424,6 +542,7 @@ async function handleCreateOrder(req, res) {
   const body = await readBody(req);
   const tableId = requireString(body.table_id, "table_id");
   const items = Array.isArray(body.items) ? body.items : [];
+  const notes = typeof body.notes === "string" ? body.notes : "";
   const tableDoc = await getDb().collection("tables").doc(tableId).get();
 
   if (!tableDoc.exists) {
@@ -438,28 +557,48 @@ async function handleCreateOrder(req, res) {
     fail("items must include at least one item");
   }
 
-  const orderRef = await getDb().collection("orders").add({
+  // Canonical set-menu ids the robot reads from the table doc (e.g. ["menu_two"]).
+  const menuIds = normalizeMenuIds(items);
+
+  const orderRef = getDb().collection("orders").doc();
+  const tableRef = getDb().collection("tables").doc(tableId);
+  const batch = getDb().batch();
+
+  batch.set(orderRef, {
     table_id: tableId,
     status: "draft",
     items,
     assigned_robot: null,
     used_tray: null,
-    notes: typeof body.notes === "string" ? body.notes : "",
+    notes,
     created_at: FieldValue.serverTimestamp(),
     created_by: "webapp",
     updated_at: FieldValue.serverTimestamp(),
   });
 
-  await getDb().collection("tables").doc(tableId).update({
+  // Mirror the order onto the table doc so the robot's pending-order flow sees it
+  // (matches RestaurantDatabase.save_order on the Python side).
+  batch.update(tableRef, {
+    status: "occupied",
+    has_ordered: true,
+    order_items: menuIds,
+    order_notes: notes,
+    order_ready: false,
+    order_delivered: false,
+    order_placed_at: FieldValue.serverTimestamp(),
+    order_ready_at: null,
+    order_delivered_at: null,
     current_order: orderRef.id,
     last_updated: FieldValue.serverTimestamp(),
   });
+
+  await batch.commit();
   await writeEvent({
     type: "order_created",
     message: `Order ${orderRef.id} created for table ${tableId}.`,
     entity_type: "order",
     entity_id: orderRef.id,
-    metadata: { table_id: tableId },
+    metadata: { table_id: tableId, menu_items: menuIds },
   });
 
   sendJson(res, 201, { id: orderRef.id });
@@ -505,10 +644,22 @@ async function handleAdvanceOrder(req, res) {
   batch.update(orderRef, update);
 
   if (["delivered", "cancelled", "failed"].includes(status) && typeof order.table_id === "string") {
-    batch.update(getDb().collection("tables").doc(order.table_id), {
+    // Clear the robot-facing order fields this app mirrored onto the table at
+    // create time, so a webapp cancel/deliver doesn't leave a stale pending order
+    // (matches mark_order_delivered on the Python side).
+    const tableReset = {
       current_order: null,
+      has_ordered: false,
+      order_items: [],
+      order_notes: "",
+      order_ready: false,
+      order_placed_at: null,
+      order_ready_at: null,
+      order_delivered: status === "delivered",
+      order_delivered_at: status === "delivered" ? FieldValue.serverTimestamp() : null,
       last_updated: FieldValue.serverTimestamp(),
-    });
+    };
+    batch.update(getDb().collection("tables").doc(order.table_id), tableReset);
   }
 
   await batch.commit();
